@@ -72,7 +72,7 @@ label{display:block;font-size:12px;color:var(--muted)}
 .tick{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:13px;margin:0 0 8px;cursor:pointer}.tick input{width:auto;margin:0;accent-color:var(--fg)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .sub{border-top:1px solid var(--line);padding-top:10px}.sub .small{margin:-4px 0 10px}
-.sub:has([name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
+.sub:has([type=checkbox][name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
 dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:11px;margin:8px 0 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:899px){
  .wrap{grid-template-columns:minmax(0,1fr);gap:0}
