@@ -1,8 +1,7 @@
 import { test, mock } from 'bun:test';
 import assert from 'node:assert/strict';
 mock.module('cloudflare:workers', () => ({ DurableObject: class {} }));
-const answers = { learn: { noul: .9 }, reply: { noul: .9 } };
-for (const a of ['warmth', 'playfulness', 'curiosity', 'expressiveness']) answers[a] = { choice: 'balanced', probabilities: { low: 0, reserved: 0, balanced: 1, elevated: 0, high: 0 } };
+const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 // A fake Apron connection: answers server/auth/history from `log`, recording frames in `sent`.
 function apron(log, sent) {
   const listeners = {};
@@ -37,7 +36,7 @@ test('HTTP controls require a secret', async () => {
 test('transcript stays in memory and persists only aggregate weights', async () => {
   const { bot, init, saved } = fixture(); await init;
   bot.enabled = true; bot.self = 'bot_me'; bot.ws = {};
-  let calls = 0; bot.api = async () => { ++calls; return { answers }; };
+  let calls = 0; bot.api = async () => { ++calls; return classified; };
   const p = { room_id: 'general', message_id: '42', log_id: '42', from: { user_id: 'alice' }, body: { text: 'private-content-canary' } };
   await bot.handle(p); await bot.handle(p); await bot.flush();
   assert.equal(calls, 1); assert.equal(saved.length, 1);
@@ -55,8 +54,9 @@ test('a poll reads new messages, replies, and disconnects', async () => {
   const inference = [], realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     if (String(url).startsWith('https://apron.test')) return { webSocket: server.ws = apron(log, server.sent) };
-    inference.push(String(url));
-    return Response.json(String(url).includes('decisions') ? { answers } : { choices: [{ message: { content: 'hi there' } }] });
+    const body = JSON.parse(init.body);
+    const kind = body.temperature === 0 ? 'classify' : 'reply'; inference.push(kind);
+    return Response.json(kind === 'classify' ? classified : { choices: [{ message: { content: 'hi there' } }] });
   };
   const { bot, init } = fixture(); await init; bot.enabled = true;
   await bot.poll();
@@ -65,8 +65,9 @@ test('a poll reads new messages, replies, and disconnects', async () => {
   log.push(msg('11', 'bob', 'context line'), msg('12', 'carol', 'hey @bot_me'), msg('11', 'bob', 'edited', { log_id: '13', prev_log_id: '11' }));
   await bot.poll();
   assert.equal(bot.cursor, '13');
-  assert.deepEqual(inference.map(u => u.split('/api/')[1]), ['alpha/decisions', 'alpha/decisions', 'v1/chat/completions']);
-  const reply = server.sent.find(f => f.method === 'message');
+  assert.deepEqual(inference, ['classify', 'classify', 'reply']);
+  const [hello, reply] = server.sent.filter(f => f.method === 'message');
+  assert.equal(hello.params.room_id, 'general');
   assert.deepEqual(reply.params, { room_id: 'general', body: { text: 'hi there' }, reply_to: { message_id: '12' } });
   assert.equal(server.ws.readyState, 3); assert.equal(bot.context.length, 0);
   assert.equal(server.sent.filter(f => f.method === 'auth').length, 2);

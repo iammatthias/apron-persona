@@ -1,6 +1,6 @@
 # Apron Persona
 
-A small, dependency-free Cloudflare Worker agent: Mercury Decide classifies human chat; OpenRouter's free router writes replies; a single Durable Object owns the Apron WebSocket; Workers KV stores the aggregate four-dimensional personality.
+A small, dependency-free Cloudflare Worker agent: OpenRouter's free router classifies human chat and writes replies; a single Durable Object polls Apron; Workers KV stores the aggregate four-dimensional personality.
 
 ## Setup
 
@@ -16,7 +16,7 @@ bunx wrangler login
 
 The `PERSONA` KV namespace already exists and its ID is in `wrangler.jsonc`. Set `ROOMS` to comma-separated room IDs. Add your bot to those rooms in Apron with `/invite @bot_<your_user_id>`. Membership permissions depend on the server.
 
-3. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models, and enforce ZDR for all model groups. **Do this before starting:** Mercury uses the alpha Decisions endpoint; this scaffold relies on account-level policy for that endpoint. Chat requests additionally send `provider: { data_collection: 'deny', zdr: true }`. Endpoint eligibility and free availability can prevent inference; the bot keeps silent on errors and never relaxes privacy automatically.
+3. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models, and enforce ZDR for all model groups. Both requests also send `provider: { data_collection: 'deny', zdr: true }`. Endpoint eligibility and free availability can prevent inference; the bot keeps silent on errors and never relaxes privacy automatically.
 4. Set secrets interactively:
 
 ```sh
@@ -49,8 +49,8 @@ curl "$BOT_URL/status" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
 
 ## Behavior
 
-- Learns from permitted rooms, and replies only to mentions or replies to its own recent messages (among the last 60 logged). Bot/system/own messages are excluded.
-- Sends six typed questions in one Mercury request: learning eligibility, response eligibility, and four five-level trait choices. Uses probability-weighted trait scores.
+- Learns from permitted rooms, and replies only to mentions or replies to its own recent messages (among the last 60 logged). Bot/system/own messages are excluded. Says hello once in each room when `ROOMS` changes.
+- Asks the classifier for one JSON object: learning probability, reply probability, and a five-level choice for each of the four traits.
 - Four axes: warmth, playfulness, curiosity, expressiveness. Each has five quantized positions, giving at most 625 cells. The current personality is their weighted centroid with a neutral prior of ten observations.
 - Thirty-day weight half-life. Each participant contributes at most once per poll. Learning requires eligibility probability >= .8; replying requires >= .7. These are initial thresholds, not empirically validated guarantees.
 - HMAC fingerprints suppress normalized duplicate messages within a poll. Fingerprints and participant rate-limit keys remain in memory and reset every poll. Hash bits never determine trait coordinates.
@@ -75,16 +75,14 @@ This implements community style. Facts, personal histories, and shared lore are 
 ## Files and validation
 
 - `src/index.js`: transport, lifecycle, inference and persistence.
-- `src/core.js`: decisions, HMAC, 4D aggregation and decay.
+- `src/core.js`: classification prompt and parser, HMAC, 4D aggregation and decay.
 - `test/`: deterministic privacy/persistence, filtering, malformed response, budget and aggregation checks, with no real conversation data.
 
-The Decisions response parser follows the documented `answers`, `noul`, `choice`, and `probabilities` shapes and fails closed on schema changes. Tests mock inference; a real Apron/OpenRouter end-to-end run needs your secrets. The alpha Decisions API may change.
+The classifier parser accepts only that JSON object (optionally in a code fence) and fails closed on anything else. Tests mock inference.
 
 ## References
 
 - https://github.com/apron-chat/apron-server-cloudflare/blob/main/src/index.ts
-- https://openrouter.ai/inception/mercury-decide:free
-- https://openrouter.ai/docs/guides/community/multimodal-decisions
 - https://openrouter.ai/docs/guides/routing/routers/free-router
 - https://openrouter.ai/docs/guides/features/zdr
 - https://developers.cloudflare.com/durable-objects/best-practices/websockets/

@@ -28,10 +28,12 @@ test('ignores bots, notices, own messages, deletes and unapproved rooms', () => 
   assert.ok(!accept({ ...p, from: { user_id: 'custom', roles: ['bot'] } }));
 });
 test('rejects malformed decisions and computes expected trait values', () => {
-  const answers = { learn: { noul: .9 }, reply: { noul: .8 } };
-  for (const a of axes) answers[a] = { choice: 'balanced', probabilities: { low: 0, reserved: 0, balanced: 1, elevated: 0, high: 0 } };
-  assert.deepEqual(decision({ answers }).vector, [.5, .5, .5, .5]);
-  answers.warmth.probabilities.high = 1;
-  assert.throws(() => decision({ answers }));
+  const reply = content => ({ choices: [{ message: { content } }] });
+  const answers = { learn: .9, reply: .8, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
+  assert.deepEqual(decision(reply(JSON.stringify(answers))).vector, [1, 0, .5, .75]);
+  assert.equal(decision(reply('```json\n' + JSON.stringify(answers) + '\n```')).learn, .9);
+  assert.throws(() => decision(reply(JSON.stringify({ ...answers, warmth: 'toString' }))));
+  assert.throws(() => decision(reply(JSON.stringify({ ...answers, learn: 2 }))));
+  assert.throws(() => decision(reply('not json')));
   assert.throws(() => decision({}));
 });

@@ -13,7 +13,7 @@
     "ROOMS": "general",
     "POLL_MINUTES": "5",
     "BOT_NAME": "Apron Persona",
-    "DECISION_MODEL": "inception/mercury-decide:free",
+    "DECISION_MODEL": "openrouter/free",
     "CHAT_MODEL": "openrouter/free",
     "DAILY_CALLS": "40",
     "HALF_LIFE_DAYS": "30"
