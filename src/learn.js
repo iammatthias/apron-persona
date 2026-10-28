@@ -45,7 +45,8 @@ export function read(connect, { url, token, rooms, cap, self, limit = 30000 }) {
     });
   });
 }
-// The lines as `name: text` transcripts of at most `size` characters, at most `max` of them, keeping the newest.
+// The lines as `name: text` transcripts of at most `size` characters, at most `max` of them, keeping the newest. A last,
+// oldest chunk under a quarter full is dropped rather than spending a call on a few lines.
 export function chunk(lines, size = 12000, max = 4) {
   const out = [[]];
   let length = 0;
@@ -57,6 +58,7 @@ export function chunk(lines, size = 12000, max = 4) {
     }
     length += (out[0].length ? 1 : 0) + s.length; out[0].unshift(s);
   }
+  if (out.length > 1 && length < size / 4) out.shift();
   return out.filter(c => c.length).map(c => ({ text: c.join('\n'), count: c.length }));
 }
 const styleOnly = 'Describe style only: never name, quote or paraphrase anyone, and never mention facts, events or topics that could identify a person.';

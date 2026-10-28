@@ -73,6 +73,7 @@ test('chunks fill to the size limit with the newest lines and stop at the maximu
   assert.deepEqual(chunk(lines, 17, 2), [{ text: 'a: xxxx2\na: xxxx3', count: 2 }, { text: 'a: xxxx4\na: xxxx5', count: 2 }]);
   assert.deepEqual(chunk([{ name: 'b', text: 'two\nlines' }, { name: 'c', text: 'y'.repeat(30) }], 10), [{ text: 'b: two\n  l', count: 1 }, { text: 'c: yyyyyyy', count: 1 }]);
   assert.equal(chunk(Array.from({ length: 1000 }, (_, i) => ({ name: 'n', text: 'z'.repeat(100 + i % 7) }))).length, 4);
+  assert.deepEqual(chunk([{ name: 'a', text: 'x' }, ...lines], 44), [{ text: 'a: xxxx1\na: xxxx2\na: xxxx3\na: xxxx4\na: xxxx5', count: 5 }]);
   assert.deepEqual(chunk([]), []);
 });
 const content = x => ({ choices: [{ message: { content: typeof x === 'string' ? x : JSON.stringify(x) } }] });
@@ -108,7 +109,7 @@ const canary = 'history-canary';
 // A bot whose connections reach a history server of `n` canary lines and whose model reads every chunk as warm and dry.
 function teacher({ n = 300, calls = '40', reply = voice('dry and quick'), persona = 'You are {name}, dry and quick.' } = {}) {
   const saved = [], requests = [];
-  const log = Array.from({ length: n }, (_, i) => say(i + 1, `u${i % 4}`, `${canary} ${'w'.repeat(20)} ${i}`));
+  const log = Array.from({ length: n }, (_, i) => say(i + 1, `u${i % 4}`, `${canary} ${'w'.repeat(40)} ${i}`));
   const bot = new Bot({ ...env, DAILY_CALLS: calls }, { load: () => ({}), save: s => saved.push(JSON.stringify(s)) }, {
     connect: () => server(log),
     request: async (url, init) => { const body = JSON.parse(init.body); requests.push(body); return Response.json(body.messages[1].content.startsWith('- ') ? content({ persona }) : reply); },

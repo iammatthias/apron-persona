@@ -102,7 +102,7 @@ export class Bot {
       // Each reading and the merge is one call; a job that can't afford them all makes none.
       if (this.left() < chunks.length + 1) return stage('failed', { count, detail: 'budget' });
       stage('thinking', { count });
-      const result = await synthesize(chunks, messages => this.api({ model: this.env.CHAT_MODEL, max_tokens: 2000, messages }, 60000));
+      const result = await synthesize(chunks, messages => this.api({ model: this.env.CHAT_MODEL, max_tokens: 6000, messages }, 60000));
       stage('ready', { ...result, at: Date.now() });
     })().catch(e => stage('failed', { detail: e.message }));
   }
