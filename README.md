@@ -16,7 +16,7 @@ bunx wrangler login
 
 The `PERSONA` KV namespace already exists and its ID is in `wrangler.jsonc`. Set `ROOMS` to comma-separated room IDs. Add your bot to those rooms in Apron with `/invite @bot_<your_user_id>`. Membership permissions depend on the server.
 
-3. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models, and enforce ZDR for all model groups. Both requests also send `provider: { data_collection: 'deny', zdr: true }`. Endpoint eligibility and free availability can prevent inference; the bot keeps silent on errors and never relaxes privacy automatically.
+3. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models. Both requests also send `provider: { data_collection: 'deny' }`. They do not require zero data retention: almost no free endpoints offer it, so providers may retain prompts briefly under their own policies. Endpoint eligibility and free availability can prevent inference; the bot keeps silent on errors and never relaxes privacy automatically.
 4. Set secrets interactively:
 
 ```sh
@@ -84,6 +84,5 @@ The classifier parser accepts only that JSON object (optionally in a code fence)
 
 - https://github.com/apron-chat/apron-server-cloudflare/blob/main/src/index.ts
 - https://openrouter.ai/docs/guides/routing/routers/free-router
-- https://openrouter.ai/docs/guides/features/zdr
 - https://developers.cloudflare.com/durable-objects/best-practices/websockets/
 - https://developers.cloudflare.com/kv/concepts/how-kv-works/
