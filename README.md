@@ -16,7 +16,7 @@ Then:
 
 ```sh
 ff-deploy apron-persona
-add-site persona 8902   # homepage at persona.local
+add-public-site apron-bot.farfield.systems 8902   # homepage
 ```
 
 Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).
