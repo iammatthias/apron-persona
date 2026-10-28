@@ -7,6 +7,7 @@
   "durable_objects": { "bindings": [{ "name": "BOT", "class_name": "Bot" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Bot"] }],
   "kv_namespaces": [{ "binding": "PERSONA", "id": "3767b51100654edab9666b9d9f416a08" }],
+  "triggers": { "crons": [] },
   "vars": {
     "APRON_URL": "wss://server.apron.chat/",
     "ROOMS": "general",
