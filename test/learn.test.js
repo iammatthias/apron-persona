@@ -1,6 +1,8 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { read, chunk, synthesize, reading, draft, average } from '../src/learn.js';
+import { Bot } from '../src/bot.js';
+import { settings } from '../src/settings.js';
 // A fake Apron server holding `log`: it greets, signs in, and pages history backwards with an inclusive `before`.
 function server(log, { silent = false, refuse = false } = {}) {
   const listeners = {}, sent = [];
@@ -100,4 +102,79 @@ test('synthesis reads each chunk, merges the voices, and counts a failed reading
   assert.equal(asked.length, 2);
   asked.length = 0;
   await assert.rejects(synthesize(chunks, ask([voice('a'), voice('b'), content('not json')])), { message: 'invalid-draft' });
+});
+const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
+const canary = 'history-canary';
+// A bot whose connections reach a history server of `n` canary lines and whose model reads every chunk as warm and dry.
+function teacher({ n = 300, calls = '40', reply = voice('dry and quick'), persona = 'You are {name}, dry and quick.' } = {}) {
+  const saved = [], requests = [];
+  const log = Array.from({ length: n }, (_, i) => say(i + 1, `u${i % 4}`, `${canary} ${'w'.repeat(20)} ${i}`));
+  const bot = new Bot({ ...env, DAILY_CALLS: calls }, { load: () => ({}), save: s => saved.push(JSON.stringify(s)) }, {
+    connect: () => server(log),
+    request: async (url, init) => { const body = JSON.parse(init.body); requests.push(body); return Response.json(body.messages[1].content.startsWith('- ') ? content({ persona }) : reply); },
+  });
+  return { bot, saved, requests };
+}
+const job = { url: 'wss://server.apron.test/', token: '', rooms: ['general'], cap: 300 };
+test('a history job reads, thinks, and proposes, spending one call per chunk and one to merge', async () => {
+  const { bot, requests } = teacher();
+  const running = bot.study(job);
+  assert.deepEqual(bot.learning, { stage: 'reading', host: 'server.apron.test', rooms: ['general'] });
+  assert.throws(() => bot.study(job), { message: 'already learning from history' });
+  assert.throws(() => bot.discard(), { message: 'still learning from history' });
+  await running;
+  const { at, ...proposal } = bot.learning;
+  assert.deepEqual(proposal, { stage: 'ready', host: 'server.apron.test', rooms: ['general'], persona: 'You are {name}, dry and quick.', vector: [1, 0, .5, .75], count: 300, failed: 0 });
+  assert.equal(requests.length, 3);
+  assert.equal(bot.budget.calls, 3);
+  assert.deepEqual(requests.map(r => r.model), ['c', 'c', 'c']);
+  assert.deepEqual(bot.log.list().map(({ at, ...e }) => e), [
+    { kind: 'learning', stage: 'reading', host: 'server.apron.test', rooms: ['general'] },
+    { kind: 'learning', stage: 'thinking', host: 'server.apron.test', rooms: ['general'], count: 300 },
+    { kind: 'learning', stage: 'ready', host: 'server.apron.test', rooms: ['general'], count: 300, failed: 0 },
+  ]);
+  assert.deepEqual(bot.preview(), { warmth: .75, playfulness: .25, curiosity: .5, expressiveness: .625 });
+  assert.deepEqual(bot.traits(), { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 });
+});
+test('apply sets the persona and seeds the traits with ten observations; discard changes neither', async () => {
+  const { bot, saved } = teacher();
+  await bot.study(job);
+  bot.discard();
+  assert.equal(bot.learning, null);
+  assert.equal(bot.settings.persona, settings.persona.default());
+  assert.deepEqual(bot.state.cells, {});
+  await bot.study(job);
+  bot.adopt('You are {name}, edited by the owner.');
+  assert.equal(bot.settings.persona, 'You are {name}, edited by the owner.');
+  assert.deepEqual(bot.state.cells, { '4023': 10 });
+  assert.deepEqual(bot.traits(), { warmth: .75, playfulness: .25, curiosity: .5, expressiveness: .625 });
+  assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, edited by the owner.');
+  assert.deepEqual(bot.log.list().map(({ at, ...e }) => e).filter(e => e.kind !== 'learning'), [{ kind: 'taught', count: 300, rooms: ['general'], host: 'server.apron.test' }]);
+  assert.equal(bot.learning, null);
+  assert.throws(() => bot.adopt('You are {name}.'), { message: 'there is no proposal to apply' });
+});
+test('no history text reaches an event, the status, the saved state or the proposal', async () => {
+  const { bot, saved, requests } = teacher();
+  await bot.study(job);
+  assert.ok(requests[0].messages[1].content.includes(canary));
+  bot.adopt(bot.learning.persona); bot.save();
+  for (const [where, s] of [['events', JSON.stringify(bot.log.list())], ['status', JSON.stringify(bot.status())], ['saved', saved.join('\n')]]) assert.ok(!s.includes(canary), where);
+  const again = teacher();
+  await again.bot.study(job);
+  assert.ok(!JSON.stringify(again.bot.learning).includes(canary));
+});
+test('a job that cannot afford every call makes none, and a failure says why', async () => {
+  const poor = teacher({ calls: '2' });
+  await poor.bot.study(job);
+  assert.equal(poor.requests.length, 0);
+  assert.deepEqual(poor.bot.learning, { stage: 'failed', host: 'server.apron.test', rooms: ['general'], count: 300, detail: 'budget' });
+  const empty = teacher({ n: 0 });
+  await empty.bot.study(job);
+  assert.equal(empty.bot.learning.detail, 'no-messages');
+  const garbled = teacher({ reply: content('not json') });
+  await garbled.bot.study(job);
+  assert.deepEqual([garbled.bot.learning.stage, garbled.bot.learning.detail, garbled.requests.length], ['failed', 'invalid-reading', 2]);
+  assert.equal(garbled.bot.log.list().at(-1).detail, 'invalid-reading');
+  garbled.bot.discard();
+  assert.equal(garbled.bot.learning, null);
 });

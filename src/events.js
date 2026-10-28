@@ -11,6 +11,9 @@ export const kinds = {
   // The new value of each changed setting except the persona, whose text stays out of the log.
   settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'cooldown', 'organic', 'organic_threshold', 'organic_gap'] },
   error: { label: 'Error', fields: ['code'] },
+  // A history job's stage: reading, thinking, ready or failed. Never the history or the draft.
+  learning: { label: 'Learning from history', fields: ['stage', 'host', 'rooms', 'count', 'failed', 'detail'] },
+  taught: { label: "Took on the room's voice", fields: ['count', 'rooms', 'host'] },
 };
 // What became of one incoming message.
 export const outcomes = {
@@ -92,6 +95,7 @@ export const breaks = {
   'auth-denied': () => 'the server refused my token',
   settings: e => e.keys.map(k => changes[k](e[k])).join(', '),
   error: e => `error: ${e.code}`,
+  taught: e => `you taught me the room's voice (${plural(e.count, 'message')})`,
 };
 export function event(kind, fields = {}) {
   if (!Object.hasOwn(kinds, kind)) throw Error(`unknown event ${kind}`);

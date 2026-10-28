@@ -47,6 +47,11 @@ export function learn(state, vector, weight, now = Date.now(), days = 30) {
   const key = vector.map(x => Math.round(Math.max(0, Math.min(1, x)) * 4)).join('');
   state.cells[key] = (state.cells[key] ?? 0) + Math.min(1, Math.max(0, weight));
 }
+// A head start toward vector worth as much as the neutral prior. learn() counts at most one observation per call.
+export function seed(state, vector, now, days) {
+  for (let i = 0; i < 10; ++i) learn(state, vector, 1, now, days);
+  return state;
+}
 export function persona(state) {
   // A neutral prior prevents one message establishing the whole personality.
   let mass = 10; const sums = [5, 5, 5, 5];

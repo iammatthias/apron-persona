@@ -1,6 +1,7 @@
-import { classify, decision, fresh, decay, learn, persona, fingerprint, incoming, addressing, trigger } from './core.js';
+import { classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
+import { read, chunk, synthesize } from './learn.js';
 const TTL = 300000;
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
@@ -13,7 +14,7 @@ export class Bot {
     this.settings = restore(saved);
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.error = null; this.lastError = null;
-    this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve();
+    this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   save() {
     this.store.save({ personality: this.state, budget: this.budget, settings: this.settings });
@@ -70,18 +71,55 @@ export class Bot {
       .filter(m => m.from?.user_id === this.self && !m.deleted && typeof m.body?.text === 'string')
       .sort((a, b) => (BigInt(b.log_id) > BigInt(a.log_id) ? 1 : -1));
   }
-  // Applies owner settings only when every key in the patch parses.
-  configure(patch) {
+  // Applies owner settings only when every key in the patch parses, and returns the keys whose values moved.
+  set(patch) {
     const parsed = {};
     for (const [k, v] of Object.entries(patch)) {
       if (!Object.hasOwn(settings, k)) throw Error(`unknown setting ${k}`);
       parsed[k] = settings[k].parse(v);
     }
     if (!Object.keys(parsed).length) throw Error('nothing to save');
-    // One form saves every trigger at once, so only the values that moved are recorded.
     const keys = Object.keys(parsed).filter(k => parsed[k] !== this.settings[k]);
     this.settings = { ...this.settings, ...parsed }; this.save();
-    if (keys.length) this.record('settings', { keys, ...Object.fromEntries(keys.map(k => [k, parsed[k]])) });
+    return keys;
+  }
+  // One form saves every trigger at once, so only the values that moved are recorded.
+  configure(patch) {
+    const keys = this.set(patch);
+    if (keys.length) this.record('settings', { keys, ...Object.fromEntries(keys.map(k => [k, this.settings[k]])) });
+  }
+  // Drafts a persona and traits from a room's history, in memory only. this.learning moves through reading and thinking
+  // to ready, which holds the proposal, or failed. One job runs at a time; the promise never rejects.
+  study({ url, token, rooms, cap }) {
+    if (this.studying) throw Error('already learning from history');
+    const host = new URL(url).host;
+    const stage = (stage, fields) => { this.learning = { stage, host, rooms, ...fields }; this.record('learning', this.learning); };
+    stage('reading');
+    return (async () => {
+      const lines = await read(this.connectTo, { url, token, rooms, cap, self: this.self });
+      if (!lines.length) return stage('failed', { detail: 'no-messages' });
+      const chunks = chunk(lines), count = chunks.reduce((n, c) => n + c.count, 0);
+      // Each reading and the merge is one call; a job that can't afford them all makes none.
+      if (this.left() < chunks.length + 1) return stage('failed', { count, detail: 'budget' });
+      stage('thinking', { count });
+      const result = await synthesize(chunks, messages => this.api({ model: this.env.CHAT_MODEL, max_tokens: 2000, messages }, 60000));
+      stage('ready', { ...result, at: Date.now() });
+    })().catch(e => stage('failed', { detail: e.message }));
+  }
+  get studying() { return ['reading', 'thinking'].includes(this.learning?.stage); }
+  // The traits a proposal would leave: what the room has taught so far plus the proposal's head start.
+  preview() { return persona(seed(structuredClone(this.state), this.learning.vector, Date.now(), +this.env.HALF_LIFE_DAYS)); }
+  adopt(text) {
+    const l = this.learning;
+    if (l?.stage !== 'ready') throw Error('there is no proposal to apply');
+    this.set({ persona: text });
+    seed(this.state, l.vector, Date.now(), +this.env.HALF_LIFE_DAYS);
+    this.learning = null; this.save();
+    this.record('taught', { count: l.count, rooms: l.rooms, host: l.host });
+  }
+  discard() {
+    if (this.studying) throw Error('still learning from history');
+    this.learning = null;
   }
   async remove(room_id, message_id) {
     await this.call('message', { room_id, message_id, deleted: true });
@@ -152,13 +190,17 @@ export class Bot {
     for (const map of [this.seen, this.people]) for (const [k, v] of map) if (now - v > TTL) map.delete(k);
     while (this.seen.size > 512) this.seen.delete(this.seen.keys().next().value);
   }
-  async api(body) {
+  // Calls left today.
+  left() {
     const day = new Date().toISOString().slice(0, 10);
     if (this.budget.day !== day) this.budget = { day, calls: 0 };
-    if (this.budget.calls >= +this.env.DAILY_CALLS) throw Error('budget');
+    return +this.env.DAILY_CALLS - this.budget.calls;
+  }
+  async api(body, wait = 20000) {
+    if (this.left() <= 0) throw Error('budget');
     ++this.budget.calls; this.save();
     const res = await this.request('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', signal: AbortSignal.timeout(20000),
+      method: 'POST', signal: AbortSignal.timeout(wait),
       headers: { Authorization: `Bearer ${this.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, reasoning: { exclude: true }, provider: { data_collection: 'deny' } }),
     });
