@@ -1,7 +1,8 @@
 import { page } from './page.js';
 import { dashboard, row, rows, roomOf, viewOf } from './dashboard.js';
 import { settings } from './settings.js';
-const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+// Never framed, so a hostile page can't overlay the admin forms and trick a click.
+const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' } });
 const missing = () => new Response('Not found', { status: 404 });
 // The public status page and its JSON.
 export function site(bot) {

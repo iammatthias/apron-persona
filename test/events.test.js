@@ -25,3 +25,10 @@ test('subscribers get each new event until they unsubscribe', () => {
   assert.deepEqual(got, ['one']);
   assert.equal(log.list().length, 2);
 });
+test('every stored string is capped, so a huge frame cannot bloat the log', () => {
+  const big = 'x'.repeat(1048576);
+  const e = event('message', { room: big, message_id: big, reply_to: big, from: big, name: big, mentioned: true, text: big, outcome: 'declined', detail: big });
+  assert.deepEqual([e.room.length, e.message_id.length, e.reply_to.length, e.from.length, e.name.length, e.text.length, e.detail.length], [200, 200, 200, 200, 200, 2000, 200]);
+  assert.equal(event('disconnected', { reason: big }).reason.length, 200);
+  assert.equal(event('posted', { room: 'general', message_id: '9', text: big }).text.length, 2000);
+});

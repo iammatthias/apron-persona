@@ -81,3 +81,11 @@ test('the dashboard shows the transcript and the last error, and /rows serves ro
   assert.ok(one.startsWith(`<div class="m self gone" data-at="${posted.at}" data-message-id="p1">`) && one.includes('I deleted this.') && !one.includes('<form'));
   assert.equal(await (await get(admin, '/rows?room=elsewhere')).text(), '');
 });
+test('pages refuse to be framed and are never sniffed', async () => {
+  const { site, admin } = listeners();
+  for (const res of [await get(admin, '/'), await get(site, '/')]) {
+    assert.equal(res.headers.get('X-Frame-Options'), 'DENY');
+    assert.equal(res.headers.get('Content-Security-Policy'), "frame-ancestors 'none'");
+    assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
+  }
+});

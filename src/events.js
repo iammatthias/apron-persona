@@ -72,8 +72,10 @@ export const breaks = {
 export function event(kind, fields = {}) {
   if (!Object.hasOwn(kinds, kind)) throw Error(`unknown event ${kind}`);
   if (kind === 'message' && !Object.hasOwn(outcomes, fields.outcome)) throw Error(`unknown outcome ${fields.outcome}`);
-  return { kind, ...Object.fromEntries(kinds[kind].fields.filter(f => fields[f] !== undefined).map(f => [f, fields[f]])) };
+  return { kind, ...Object.fromEntries(kinds[kind].fields.filter(f => fields[f] !== undefined).map(f => [f, cap(f, fields[f])])) };
 }
+// Frames can be up to 1 MiB, so every stored string is bounded: the ring stays small whatever a server sends.
+const cap = (f, v) => typeof v === 'string' ? v.slice(0, f === 'text' ? 2000 : 200) : v;
 // The newest events in memory, with listeners for the live stream.
 export class Log {
   constructor(size = 300) { this.size = size; this.events = []; this.listeners = new Set(); }
