@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { site, admin } from '../src/http.js';
+const portal = bot => admin(bot, () => {});
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: '', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const listeners = options => {
   const bot = new Bot({ ...env }, { load: () => ({}), save: () => {} }, { connect: () => { throw Error('no network in tests'); } });
@@ -106,4 +107,39 @@ test('one save of how I respond round-trips every trigger, switching boxes off a
   const bad = await save([['view', 'who'], ['room', 'general'], ['organic_gap', '2'], ['organic', 'off']]);
   assert.equal(bad.headers.get('Location'), '/?view=who&room=general&error=the%20chime-in%20gap%20in%20minutes%20is%20a%20whole%20number%20from%205%20to%201440');
   assert.equal(bot.settings.organic_gap, 60);
+});
+const post = (handler, path, fields) => get(handler, path, { method: 'POST', body: new URLSearchParams({ view: 'who', room: 'general', ...fields }), headers: { 'Sec-Fetch-Site': 'same-origin' } });
+const job = { url: 'wss://server.apron.test/', token: '', rooms: '#general, random', cap: '300' };
+test('learn from history validates its form, starts the job, and redirects at once', async () => {
+  let drop;
+  const bot = new Bot({ ...env }, { load: () => ({}), save: () => {} }, { connect: () => ({ addEventListener(type, f) { if (type === 'close') drop = f; }, send() {}, close() {} }) });
+  const admin = portal(bot);
+  for (const [fields, error] of [[{ url: 'https://x/' }, 'a wss:// URL is required'], [{ rooms: ' , ' }, 'name 1 to 8 rooms'], [{ cap: '1001' }, 'messages is a whole number from 1 to 1000'], [{ cap: '2.5' }, 'messages is a whole number from 1 to 1000']])
+    assert.equal((await post(admin, '/learn', { ...job, ...fields })).headers.get('Location'), `/?view=who&room=general&error=${encodeURIComponent(error)}`);
+  assert.equal(bot.learning, null);
+  assert.equal((await get(admin, '/learn', { method: 'POST', body: new URLSearchParams(job) })).status, 403);
+  const res = await post(admin, '/learn', job);
+  assert.equal(res.headers.get('Location'), '/?view=who&room=general&ok=Reading%20history.%20This%20takes%20about%20a%20minute');
+  assert.deepEqual(bot.learning, { stage: 'reading', host: 'server.apron.test', rooms: ['general', 'random'] });
+  assert.ok((await (await get(admin, '/?view=who')).text()).includes('<div id="lesson"><p class="small lesson">reading history in #general and #random on server.apron.test… <a href="/?view=who&amp;room=general">refresh</a></p></div>'));
+  assert.equal((await post(admin, '/learn', job)).headers.get('Location'), '/?view=who&room=general&error=already%20learning%20from%20history');
+  drop(); await new Promise(r => setTimeout(r, 0));
+  assert.deepEqual(bot.learning, { stage: 'failed', host: 'server.apron.test', rooms: ['general', 'random'], detail: 'history-closed' });
+  assert.ok((await (await get(admin, '/?view=who')).text()).includes("I couldn't learn from history in #general and #random on server.apron.test (history-closed)."));
+  assert.equal((await post(admin, '/learn/discard', {})).headers.get('Location'), '/?view=who&room=general&ok=Discarded');
+  assert.equal(bot.learning, null);
+});
+test('a proposal renders escaped beside the traits it would leave, and applies the edited text', async () => {
+  const { bot, admin } = listeners();
+  const hostile = '</textarea><script>alert(1)</script> You are {name} & "co"';
+  bot.learning = { stage: 'ready', host: 'server.apron.test', rooms: ['general'], persona: hostile, vector: [1, 0, .5, .75], count: 300, failed: 1, detail: 'inference-<429>', at: 0 };
+  const html = await (await get(admin, '/?view=who')).text();
+  assert.ok(!html.includes('<script>alert(1)'));
+  assert.ok(html.includes('<textarea name="persona" maxlength="4000" required>&#60;/textarea&#62;&#60;script&#62;alert(1)&#60;/script&#62; You are {name} &#38; &#34;co&#34;</textarea>'));
+  assert.ok(html.includes('300 messages from #general on server.apron.test. 1 of my readings failed (inference-&#60;429&#62;), so this leans on the rest.'));
+  assert.ok(html.includes('<div class="vs"><span></span><small>now</small><small>after</small><span>warmth</span><span>0.50</span><b>0.75</b><span>playfulness</span><span>0.50</span><b>0.25</b><span>curiosity</span><span>0.50</span><b>0.50</b><span>expressiveness</span><span>0.50</span><b>0.63</b></div>'));
+  assert.equal((await post(admin, '/learn/apply', { persona: 'You are {name}, trimmed.' })).headers.get('Location'), "/?view=who&room=general&ok=Applied%3A%20I've%20taken%20on%20the%20room's%20voice");
+  assert.equal(bot.settings.persona, 'You are {name}, trimmed.');
+  assert.ok((await (await get(admin, '/?view=who')).text()).includes("you taught me the room's voice (300 messages)"));
+  assert.equal((await post(admin, '/learn/apply', { persona: 'again' })).headers.get('Location'), '/?view=who&room=general&error=there%20is%20no%20proposal%20to%20apply');
 });

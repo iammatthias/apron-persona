@@ -22,6 +22,8 @@ Messages stay in memory for five minutes. Only the aggregate personality, the ow
 
 The admin portal, `/events.json` and `/events` (a live stream) show the last 300 decisions with room, message and user ids, the sender's display name, and the style learned from a message. They keep a message's text only when it mentions the bot, replies to it, or is one the bot chimes in on, plus the bot's own posts, in memory only: never on disk, in `status.json` or in logs. They reset on restart.
 
+"Learn from history" on the admin portal reads a room's recent history once, in memory, to draft a persona and traits; the drafting prompts ask for style, not people. Nothing from it is stored except what the owner applies.
+
 ## Test
 
 ```sh

@@ -73,6 +73,9 @@ label{display:block;font-size:12px;color:var(--muted)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .sub{border-top:1px solid var(--line);padding-top:10px}.sub .small{margin:-4px 0 10px}
 .sub:has([type=checkbox][name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
+.lesson{margin-top:12px}.lesson.bad{color:var(--bad)}
+.proposal{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.proposal textarea{min-height:10rem}
+.vs{display:grid;grid-template-columns:1fr auto auto;gap:2px 16px;font-size:12px;margin:0 0 10px}.vs small{color:var(--muted)}.vs b{font-weight:600}
 dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:11px;margin:8px 0 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:899px){
  .wrap{grid-template-columns:minmax(0,1fr);gap:0}
@@ -124,7 +127,7 @@ function sentence({ status, settings, rooms, details, limit, calls }) {
   if (!status.connected) return (status.error ? `I can't reach ${host} (${status.error}).` : `I'm connecting to ${host}.`) + spent;
   return (status.paused ? `I'm paused, so I'm not reading ${where} on ${host}.` : `I'm listening in ${where} on ${host}${settings.organic ? ', and I chime in unprompted now and then' : ''}.`) + spent;
 }
-// The private dashboard. ctx is { name, status, settings, limit, details, lastError, events, posts, rooms, room, view, edit, flash, now }.
+// The private dashboard. ctx is { name, status, settings, limit, details, lastError, events, posts, rooms, room, view, edit, flash, learning, preview, now }.
 export function dashboard(ctx) {
   const t = transcript(ctx.events, ctx.rooms), now = ctx.now ?? Date.now();
   const calls = ctx.status.budget.day === new Date(now).toISOString().slice(0, 10) ? ctx.status.budget.calls : 0;
@@ -163,8 +166,32 @@ ${post(ctx, '/persona/reset', '<button>reset to the default persona</button>', '
 ${persona}
 <div class="traits">${traits}</div>
 <p class="lean">${drift(status.personality)}</p>
+${lesson(ctx)}
 <details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div><div class="fixed"><small>then the room · fixed</small>the last 8 lines here, one "name: text" each, with mine as "you", then: ${escape(cue)} When I chime in unprompted, instead: ${escape(chime)}</div></details>
 </div></section>`;
+}
+const p2 = x => Number(x).toFixed(2);
+// The history job's stage, its proposal, or the folded form that starts one. The live script swaps #lesson on each stage.
+function lesson(ctx) {
+  const l = ctx.learning, back = `/?view=who&amp;room=${encodeURIComponent(ctx.room)}`;
+  const form = `<details><summary>learn from history</summary>${post(ctx, '/learn', `<label>server<input name="url" value="${escape(ctx.details?.url ?? '')}" required></label>
+<label>token, blank to read as a guest<input name="token" type="password" autocomplete="off"></label>
+<div class="pair"><label>rooms<input name="rooms" value="${escape(ctx.rooms.join(', '))}" required></label><label>messages<input type="number" name="cap" min="1" max="1000" step="1" value="500" required></label></div>
+<div class="bar"><button class="save">read and draft</button><span>History stays in memory.</span></div>`)}</details>`;
+  const wrap = inner => `<div id="lesson">${inner}</div>`;
+  if (!l) return wrap(form);
+  const where = `${list(l.rooms.map(r => `#${escape(r)}`))} on ${escape(l.host)}`;
+  if (l.stage === 'reading') return wrap(`<p class="small lesson">reading history in ${where}… <a href="${back}">refresh</a></p>`);
+  if (l.stage === 'thinking') return wrap(`<p class="small lesson">thinking about ${plural(l.count, 'message')} from ${where}… <a href="${back}">refresh</a></p>`);
+  const discard = label => post(ctx, '/learn/discard', `<button>${label}</button>`, 'reset');
+  if (l.stage === 'failed') return wrap(`<p class="small lesson bad">I couldn't learn from history in ${where} (${escape(l.detail)}).</p>${discard('dismiss')}${form}`);
+  const now = ctx.status.personality, after = ctx.preview;
+  const rows = axes.map(a => `<span>${a}</span><span>${p2(now[a])}</span><b>${p2(after[a])}</b>`).join('');
+  return wrap(`<div class="proposal"><p class="small">${plural(l.count, 'message')} from ${where}${l.failed ? `. ${l.failed} of my readings failed (${escape(l.detail)}), so this leans on the rest` : ''}.</p>
+${post(ctx, '/learn/apply', `<label>who I'd be. edit before applying.<textarea name="persona" maxlength="4000" required>${escape(l.persona)}</textarea></label>
+<div class="vs"><span></span><small>now</small><small>after</small>${rows}</div>
+<div class="bar"><button class="save">apply</button><span>a head start worth 10 messages</span></div>`)}
+${discard('discard')}</div>`);
 }
 // An unchecked box sends nothing, so a hidden "off" follows each one; the route reads the first value.
 const check = (s, k, label) => `<label class="tick"><input type="checkbox" name="${k}" value="on"${s[k] ? ' checked' : ''}><input type="hidden" name="${k}" value="off">${label}</label>`;
@@ -246,8 +273,14 @@ async function redraw(id) {
   const res = await fetch('/rows?room=' + room + '&id=' + encodeURIComponent(id));
   if (res.ok) { const row = (await parse(res)).firstElementChild; if (row) old.replaceWith(row); }
 }
+async function lesson() {
+  const res = await fetch(location.href);
+  if (!res.ok) return;
+  const fresh = (await parse(res)).querySelector('#lesson');
+  if (fresh) document.querySelector('#lesson')?.replaceWith(fresh);
+}
 const events = new EventSource('/events');
 events.onopen = () => { now.textContent = '● live. new messages appear here with my reasoning.'; catchUp(); };
 events.onerror = () => { now.textContent = 'reconnecting…'; };
-events.onmessage = m => { const e = JSON.parse(m.data); if (e.kind === 'deleted') redraw(e.message_id); else catchUp(); };
+events.onmessage = m => { const e = JSON.parse(m.data); if (e.kind === 'deleted') redraw(e.message_id); else if (e.kind === 'learning') lesson(); else catchUp(); };
 })();</script>`;

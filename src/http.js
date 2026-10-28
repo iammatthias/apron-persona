@@ -65,6 +65,19 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       if (!form.has('paused')) return 'Saved';
       return bot.settings.paused ? 'Paused: not reading or replying' : 'Resumed';
     },
+    async '/learn'(form) {
+      const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim(), cap = Number(form.get('cap'));
+      const rooms = String(form.get('rooms') ?? '').split(',').map(r => r.trim().replace(/^#/, '')).filter(Boolean);
+      let valid = false; try { valid = new URL(url).protocol === 'wss:'; } catch {}
+      if (!valid) throw Error('a wss:// URL is required');
+      if (token.length > 512) throw Error('that token is too long');
+      if (!rooms.length || rooms.length > 8 || rooms.some(r => r.length > 64)) throw Error('name 1 to 8 rooms');
+      if (!Number.isInteger(cap) || cap < 1 || cap > 1000) throw Error('messages is a whole number from 1 to 1000');
+      bot.study({ url, token, rooms, cap });
+      return 'Reading history. This takes about a minute';
+    },
+    async '/learn/apply'(form) { bot.adopt(form.get('persona')); return "Applied: I've taken on the room's voice"; },
+    async '/learn/discard'() { bot.discard(); return 'Discarded'; },
     async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
   };
   return async (req, server) => {
@@ -84,7 +97,7 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
     if (req.method === 'GET' && url.pathname === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
-      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash }));
+      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
