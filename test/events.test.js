@@ -1,13 +1,11 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { Log, event, label } from '../src/events.js';
+import { Log, event } from '../src/events.js';
 test('an event keeps only its kind\'s declared fields and rejects unknown kinds and outcomes', () => {
   assert.deepEqual(event('message', { room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply_p: .4, body: 'secret' }),
     { kind: 'message', room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply_p: .4 });
   assert.throws(() => event('chat', {}), { message: 'unknown event chat' });
   assert.throws(() => event('message', { outcome: 'ignored' }), { message: 'unknown outcome ignored' });
-  assert.equal(label(event('message', { outcome: 'declined' })), 'Mentioned; reply probability below 0.7');
-  assert.equal(label(event('auth-denied')), 'Token refused');
 });
 test('the log keeps the newest 300 events with strictly increasing times', () => {
   const log = new Log();

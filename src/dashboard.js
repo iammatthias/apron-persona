@@ -89,7 +89,7 @@ const time = at => `<time datetime="${new Date(at).toISOString()}">${hhmm(at)}</
 const list = xs => xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const ago = ms => ms < 60000 ? `${Math.round(ms / 1000)}s` : ms < 3600000 ? `${Math.round(ms / 60000)}m` : ms < 172800000 ? `${Math.round(ms / 3600000)}h` : `${Math.round(ms / 86400000)}d`;
-export const views = ['transcript', 'who', 'where'];
+const views = ['transcript', 'who', 'where'];
 // Every form carries the view and room it came from, so the action can redirect back to them.
 const post = (ctx, action, inner, cls = '') =>
   `<form method="post" action="${action}"${cls ? ` class="${cls}"` : ''}><input type="hidden" name="view" value="${ctx.view}"><input type="hidden" name="room" value="${escape(ctx.room)}">${inner}</form>`;

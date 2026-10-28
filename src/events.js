@@ -74,7 +74,6 @@ export function event(kind, fields = {}) {
   if (kind === 'message' && !Object.hasOwn(outcomes, fields.outcome)) throw Error(`unknown outcome ${fields.outcome}`);
   return { kind, ...Object.fromEntries(kinds[kind].fields.filter(f => fields[f] !== undefined).map(f => [f, fields[f]])) };
 }
-export const label = e => e.kind === 'message' ? outcomes[e.outcome] : kinds[e.kind].label;
 // The newest events in memory, with listeners for the live stream.
 export class Log {
   constructor(size = 300) { this.size = size; this.events = []; this.listeners = new Set(); }
