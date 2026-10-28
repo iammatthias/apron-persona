@@ -32,7 +32,7 @@ test('events are served only on the admin listener, filtered by since', async ()
   const [first, second] = bot.log.list();
   assert.deepEqual(await (await get(admin, '/events.json')).json(), [first, second]);
   assert.deepEqual(await (await get(admin, `/events.json?since=${first.at}`)).json(), [{ at: second.at, kind: 'settings', keys: ['paused'], paused: false }]);
-  for (const path of ['/events.json', '/events']) assert.equal((await get(site, path)).status, 404);
+  for (const path of ['/events.json', '/events', '/rows']) assert.equal((await get(site, path)).status, 404);
 });
 test('the event stream pings, sends new events, and unsubscribes on abort or cancel', async () => {
   const { bot, admin } = listeners();
@@ -63,12 +63,21 @@ test('a stream nobody reads is cut off instead of buffering', async () => {
   assert.equal(chunks.length, 32);
   assert.equal(chunks[31], `data: ${JSON.stringify(bot.log.list()[30])}\n\n`);
 });
-test('the dashboard shows the transcript and the last error', async () => {
+test('the dashboard shows the transcript and the last error, and /rows serves rows after since or one post by id', async () => {
   const { bot, admin } = listeners();
   bot.log.push({ kind: 'message', room: 'general', message_id: '1', from: 'u_a', name: 'ana', mentioned: true, text: '@bot hi', outcome: 'replied', learn_p: .9, reply_p: .9 });
+  const posted = bot.log.push({ kind: 'posted', room: 'general', message_id: 'p1', reply_to: '1', text: 'hello <b>' });
   bot.fail('inference-<429>');
   const html = await (await get(admin, '/')).text();
   assert.ok(html.includes('<p>@bot hi</p></div></div><div class="note ok">answered. I was 0.90 sure a reply fit.</div>'));
   assert.ok(html.includes('last error inference-&#60;429&#62; at '));
   assert.ok(html.includes("I can't read my history right now (not-connected)."));
+  const rows = await (await get(admin, `/rows?room=general&since=${posted.at - 1}`)).text();
+  assert.equal(rows.match(/data-at="\d+"/g).length, 2);
+  assert.ok(rows.startsWith(`<div class="m self" data-at="${posted.at}" data-message-id="p1">`) && rows.includes('<p>hello &#60;b&#62;</p>'));
+  assert.ok(rows.includes('error: inference-&#60;429&#62;'));
+  bot.log.push({ kind: 'deleted', room: 'general', message_id: 'p1' });
+  const one = await (await get(admin, '/rows?room=general&id=p1')).text();
+  assert.ok(one.startsWith(`<div class="m self gone" data-at="${posted.at}" data-message-id="p1">`) && one.includes('I deleted this.') && !one.includes('<form'));
+  assert.equal(await (await get(admin, '/rows?room=elsewhere')).text(), '');
 });

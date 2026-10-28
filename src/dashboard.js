@@ -94,7 +94,7 @@ export const views = ['transcript', 'who', 'where'];
 const post = (ctx, action, inner, cls = '') =>
   `<form method="post" action="${action}"${cls ? ` class="${cls}"` : ''}><input type="hidden" name="view" value="${ctx.view}"><input type="hidden" name="room" value="${escape(ctx.room)}">${inner}</form>`;
 // One transcript row: a message with text, a quiet line for one without, the bot's own post, or a break.
-function row(r, ctx) {
+export function row(r, ctx) {
   const at = ` data-at="${r.at}"`;
   if (r.kind === 'break') return `<div class="gap"${at}><span>${time(r.at)} ${escape(r.text)}</span></div>`;
   const who = escape(r.who) + (r.room && ctx.room === 'elsewhere' ? ` in #${escape(r.room)}` : '');
@@ -104,6 +104,11 @@ function row(r, ctx) {
     : `<div class="note${r.tone ? ` ${r.tone}` : ''}">${escape(r.margin)}</div>`;
   const cls = r.kind === 'post' ? ` self${r.deleted ? ' gone' : ''}` : '';
   return `<div class="m${cls}"${at}${r.kind === 'post' ? ` data-message-id="${escape(r.message_id)}"` : ''}><div class="msg">${time(r.at)}<div><div class="n">${r.kind === 'post' ? 'me' : who}</div><p>${escape(r.text)}</p></div></div>${note}</div>`;
+}
+// The rows of one room (or "elsewhere") from the event log, as the live script fetches them.
+export function rows(ctx) {
+  const t = transcript(ctx.events, ctx.rooms);
+  return ctx.room === 'elsewhere' ? t.elsewhere : t.rooms.find(r => r.id === ctx.room)?.rows ?? [];
 }
 export const roomOf = (rooms, room) => room === 'elsewhere' || rooms.includes(room) ? room : rooms[0];
 export const viewOf = view => views.includes(view) ? view : 'transcript';
@@ -135,7 +140,7 @@ ${flash}<div class="wrap">
 <div class="chat" data-room="${escape(ctx.room)}" data-since="${ctx.events.at(-1)?.at ?? 0}">${shown.map(r => row(r, ctx)).join('') || '<p class="empty">Nothing here since I started.</p>'}</div>
 <p class="now">times in UTC · <a href="/?room=${encodeURIComponent(ctx.room)}">refresh</a></p></main>
 <aside>${me(c)}${budget(c)}${said(c)}${home(c)}</aside>
-</div>`, { style: css, cls: ` class="v-${ctx.view}"` });
+</div>${live}`, { style: css, cls: ` class="v-${ctx.view}"` });
 }
 function drift(personality) {
   const moved = axes.filter(a => Math.abs(personality[a] - .5) >= .01).sort((a, b) => Math.abs(personality[b] - .5) - Math.abs(personality[a] - .5));
@@ -191,3 +196,41 @@ function home(ctx) {
 <div class="bar"><button class="save">save and reconnect</button><span>The token is never shown.</span></div>`)}</details>
 </div></section>`;
 }
+// Progressive enhancement: appends rows as /events announces them, catching up by `since` after each reconnect,
+// re-renders a post once it is deleted, and shows times in the viewer's zone.
+const live = `<script>(() => {
+const chat = document.querySelector('.chat'), now = document.querySelector('.now');
+const local = root => root.querySelectorAll('time[datetime]').forEach(t => {
+  const d = new Date(t.dateTime), hm = { hour: '2-digit', minute: '2-digit', hourCycle: 'h23' };
+  t.textContent = t.classList.contains('d') ? d.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString([], hm) : d.toLocaleTimeString([], hm);
+});
+local(document);
+if (!chat || !window.EventSource) return;
+const room = encodeURIComponent(chat.dataset.room);
+let since = Number(chat.dataset.since), running = false, again = false;
+const parse = async res => { const t = document.createElement('template'); t.innerHTML = await res.text(); local(t.content); return t.content; };
+async function catchUp() {
+  if (running) { again = true; return; }
+  running = true;
+  try {
+    const res = await fetch('/rows?room=' + room + '&since=' + since);
+    if (res.ok) {
+      const rows = await parse(res);
+      for (const r of rows.children) since = Math.max(since, Number(r.dataset.at));
+      if (rows.children.length) { chat.querySelector('.empty')?.remove(); chat.append(rows); }
+    }
+  } catch {}
+  running = false;
+  if (again) { again = false; catchUp(); }
+}
+async function redraw(id) {
+  const old = chat.querySelector('[data-message-id="' + CSS.escape(id) + '"]');
+  if (!old) return;
+  const res = await fetch('/rows?room=' + room + '&id=' + encodeURIComponent(id));
+  if (res.ok) { const row = (await parse(res)).firstElementChild; if (row) old.replaceWith(row); }
+}
+const events = new EventSource('/events');
+events.onopen = () => { now.textContent = '● live. new messages appear here with my reasoning.'; catchUp(); };
+events.onerror = () => { now.textContent = 'reconnecting…'; };
+events.onmessage = m => { const e = JSON.parse(m.data); if (e.kind === 'deleted') redraw(e.message_id); else catchUp(); };
+})();</script>`;

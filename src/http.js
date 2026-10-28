@@ -1,5 +1,5 @@
 import { page } from './page.js';
-import { dashboard, roomOf, viewOf } from './dashboard.js';
+import { dashboard, row, rows, roomOf, viewOf } from './dashboard.js';
 import { settings } from './settings.js';
 const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 const missing = () => new Response('Not found', { status: 404 });
@@ -75,6 +75,11 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       return new Response(stream(bot.log, req.signal, ping), { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
     }
     const q = url.searchParams, ctx = { ...place(q), events: bot.log.list(), rooms: bot.rooms };
+    if (req.method === 'GET' && url.pathname === '/rows') {
+      const all = rows(ctx), since = Number(q.get('since')) || 0;
+      const shown = q.has('id') ? all.filter(r => r.kind === 'post' && r.message_id === q.get('id')) : all.filter(r => r.at > since);
+      return html(shown.map(r => row(r, ctx)).join(''));
+    }
     if (req.method === 'GET' && url.pathname === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;

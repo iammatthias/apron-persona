@@ -48,7 +48,7 @@ test('hostile text in a mention and in the bot\'s reply is escaped', () => {
   assert.ok(html.includes('<div class="n">me</div><p>&#60;img src=x onerror=alert(1)&#62;</p></div></div><div class="note">my reply to ana&#60;i&#62;. <form method="post" action="/delete">'));
   assert.ok(html.includes('<input type="hidden" name="message_id" value="p&#34;1">'));
   assert.ok(html.includes('<p>&#60;script&#62;said&#60;/script&#62;</p>'));
-  assert.ok(!html.includes('<script'));
+  assert.equal(html.match(/<script>/g).length, 1);
   assert.ok(!html.includes('<img src=x') && !html.includes('<b>hi'));
 });
 test('who I am shows the persona, the drift from the start, and the exact prompt; edit escapes the editor', () => {
