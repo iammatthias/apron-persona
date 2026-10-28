@@ -55,7 +55,7 @@ details{margin-top:12px;font-size:12px}summary{cursor:pointer;color:var(--muted)
 .pp div{margin-top:8px;padding:6px 8px;border-left:2px solid var(--line);white-space:pre-wrap;overflow-wrap:anywhere}
 .pp small{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.08em}
 .pp .fixed{border-left-style:dashed}
-textarea,input{font:inherit;font-size:13px;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;margin:4px 0 10px}
+textarea,input{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;margin:4px 0 10px}
 textarea{min-height:14rem;resize:vertical;line-height:1.5}
 label{display:block;font-size:12px;color:var(--muted)}
 .bar{display:flex;flex-wrap:wrap;align-items:center;gap:10px;font-size:12px;color:var(--muted)}
@@ -74,7 +74,7 @@ label{display:block;font-size:12px;color:var(--muted)}
 .sub{border-top:1px solid var(--line);padding-top:10px}.sub .small{margin:-4px 0 10px}
 .sub:has([type=checkbox][name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
 .lesson{margin-top:12px}.lesson.bad{color:var(--bad)}
-.proposal{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.proposal textarea{min-height:10rem}
+.proposal{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.proposal>.small{margin-bottom:10px}.proposal textarea{min-height:10rem}
 .vs{display:grid;grid-template-columns:1fr auto auto;gap:2px 16px;font-size:12px;margin:0 0 10px}.vs small{color:var(--muted)}.vs b{font-weight:600}
 dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:11px;margin:8px 0 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:899px){
