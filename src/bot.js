@@ -21,7 +21,8 @@ export class Bot {
     this.prune();
     if (this.dirty) this.save();
     if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.ws.close();
-    if (!this.ws) this.connect();
+    if (!this.ws && !this.env.APRON_TOKEN) this.error = 'no-apron-token';
+    else if (!this.ws) this.connect();
     else if (this.ready && Date.now() - this.lastFrame > 120000) this.ws.close();
     else if (this.ready) this.send('ping', {});
   }
@@ -73,6 +74,13 @@ export class Bot {
       this.queue = this.queue.then(() => this.ws === ws && this.handle(frame.params))
         .catch(() => { this.error = 'message-processing-failed'; }).finally(() => --this.pending);
     });
+  }
+  // Switches to another Apron server or token, reconnecting now.
+  use(url, token) {
+    this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
+    this.ws?.close(); this.ws = null; this.ready = false; this.context = [];
+    this.bots.clear(); this.own.clear(); this.self = undefined; this.error = null;
+    this.connect();
   }
   authed(you) {
     this.self = you.user_id; this.ready = true; this.error = null;

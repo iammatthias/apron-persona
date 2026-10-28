@@ -7,7 +7,7 @@ A Bun bot for Apron that learns a room's conversational style and replies when m
 Put these in `.env`:
 
 ```sh
-APRON_TOKEN=...          # from /invite-bot in Apron
+APRON_TOKEN=...          # from /invite-bot; or set it, and the server, on the moderation page
 OPENROUTER_API_KEY=...
 HASH_SECRET=...          # openssl rand -hex 32
 MOD_PASSWORD=...         # moderation page login; unset turns it off

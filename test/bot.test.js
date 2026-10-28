@@ -76,6 +76,22 @@ test('lists only its own live posts and deletes by message id', async () => {
 test('pages escape text and show moderation only when given posts', () => {
   const status = { connected: true, error: null, budget: { calls: 0 }, personality: { warmth: .5 } };
   assert.ok(!page('P', status).includes('Moderation'));
-  const html = page('P', status, [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }]);
+  const html = page('P', status, { url: 'wss://a"b/', posts: [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }] });
   assert.ok(html.includes('&#60;script&#62;') && !html.includes('<script>'));
+  assert.ok(html.includes('value="wss://a&#34;b/"') && html.includes('type="password"'));
+});
+test('switching server or token reconnects with the new credentials', () => {
+  const sockets = [];
+  const bot = new Bot({ ...env }, { load: () => ({}), save: () => {} }, { connect: url => { const ws = socket(); ws.url = url; sockets.push(ws); return ws; } });
+  bot.tick();
+  bot.use('wss://other.test/ws', 'apron_bot_new');
+  assert.equal(sockets.length, 2); assert.equal(sockets[0].readyState, 3); assert.equal(sockets[1].url, 'wss://other.test/ws');
+  sockets[1].emit({ method: 'server', params: {} });
+  assert.equal(sockets[1].sent.at(-1).params.token, 'apron_bot_new');
+});
+test('without a token it waits instead of connecting', () => {
+  let connects = 0;
+  const bot = new Bot({ ...env, APRON_TOKEN: '' }, { load: () => ({}), save: () => {} }, { connect: () => { ++connects; return socket(); } });
+  bot.tick();
+  assert.equal(connects, 0); assert.equal(bot.status().error, 'no-apron-token');
 });

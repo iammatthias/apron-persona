@@ -1,4 +1,4 @@
-import { renameSync, writeFileSync, readFileSync } from 'node:fs';
+import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { Bot } from './bot.js';
 import { page } from './page.js';
 import { timingSafeEqual, createHash } from 'node:crypto';
@@ -8,11 +8,14 @@ const defaults = {
   DATA_DIR: '/data', PORT: '8080', MOD_PORT: '8081',
 };
 const env = { ...defaults, ...process.env };
-for (const k of ['APRON_TOKEN', 'OPENROUTER_API_KEY', 'HASH_SECRET']) if (!env[k]) throw Error(`missing ${k}`);
+for (const k of ['OPENROUTER_API_KEY', 'HASH_SECRET']) if (!env[k]) throw Error(`missing ${k}`);
+// The Apron server and token set on the moderation page override the environment.
+const apronFile = `${env.DATA_DIR}/apron.json`;
+try { const { url, token } = JSON.parse(readFileSync(apronFile, 'utf8')); Object.assign(env, { APRON_URL: url, APRON_TOKEN: token }); } catch {}
 // Atomic JSON files: a crash mid-write keeps the previous version.
-const write = (name, value) => {
+const write = (name, value, mode = 0o644) => {
   const path = `${env.DATA_DIR}/${name}`;
-  writeFileSync(`${path}.tmp`, JSON.stringify(value)); renameSync(`${path}.tmp`, path);
+  writeFileSync(`${path}.tmp`, JSON.stringify(value), { mode }); chmodSync(`${path}.tmp`, mode); renameSync(`${path}.tmp`, path);
 };
 const store = {
   load() { try { return JSON.parse(readFileSync(`${env.DATA_DIR}/state.json`, 'utf8')); } catch { return {}; } },
@@ -56,7 +59,17 @@ if (env.MOD_PASSWORD) Bun.serve({
     const path = new URL(req.url).pathname;
     if (req.method === 'GET' && path === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
-      return html(page(env.BOT_NAME, bot.status(), posts));
+      return html(page(env.BOT_NAME, bot.status(), { posts, url: env.APRON_URL }));
+    }
+    if (req.method === 'POST' && path === '/apron') {
+      if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
+      const form = await req.formData();
+      const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim();
+      let valid = false; try { valid = new URL(url).protocol === 'wss:'; } catch {}
+      if (!valid || !token || token.length > 512) return new Response('Bad request: a wss:// URL and a token are required', { status: 400 });
+      write('apron.json', { url, token }, 0o600);
+      bot.use(url, token);
+      return new Response(null, { status: 303, headers: { Location: '/' } });
     }
     if (req.method === 'POST' && path === '/delete') {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
