@@ -1,6 +1,7 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { Bot } from './bot.js';
-import { page } from './page.js';
+import { page, portal, tabs } from './page.js';
+import { settings } from './settings.js';
 const defaults = {
   APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona',
   DECISION_MODEL: 'openrouter/free', CHAT_MODEL: 'openrouter/free', DAILY_CALLS: '40', HALF_LIFE_DAYS: '30',
@@ -41,9 +42,10 @@ Bun.serve({
     return new Response('Not found', { status: 404 });
   },
 });
-// Moderation has no login: bind it only behind a tailnet-only site. Writes
-// require a same-origin form post, and each reports its outcome on the page.
-const back = (key, text) => new Response(null, { status: 303, headers: { Location: `/?${key}=${encodeURIComponent(text)}` } });
+// The admin portal has no login: bind it only behind a tailnet-only site. Writes
+// require a same-origin form post, and each reports its outcome on the tab it came from.
+const tabOf = id => tabs.some(t => t.id === id) ? id : 'overview';
+const back = (tab, key, text) => new Response(null, { status: 303, headers: { Location: `/?tab=${tab}&${key}=${encodeURIComponent(text)}` } });
 const actions = {
   async '/apron'(form) {
     const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim();
@@ -60,24 +62,28 @@ const actions = {
     await bot.remove(room_id, message_id);
     return 'Deleted';
   },
-  async '/pause'(form) {
-    bot.configure({ paused: form.get('paused') });
+  async '/settings'(form) {
+    bot.configure(Object.fromEntries(Object.keys(settings).filter(k => form.has(k)).map(k => [k, form.get(k)])));
+    if (!form.has('paused')) return 'Saved';
     return bot.settings.paused ? 'Paused: not reading or replying' : 'Resumed';
   },
+  async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
 };
 Bun.serve({
   port: +env.MOD_PORT,
   async fetch(req) {
     const url = new URL(req.url), action = actions[url.pathname];
     if (req.method === 'GET' && url.pathname === '/') {
-      const posts = await bot.posts().catch(e => ({ error: e.message }));
-      const flash = url.searchParams.get('error') ? { error: url.searchParams.get('error') } : url.searchParams.get('ok') ? { ok: url.searchParams.get('ok') } : null;
-      return html(page(bot.name, bot.status(), { posts, url: env.APRON_URL, you: bot.you, details: bot.details(), flash }));
+      const tab = tabOf(url.searchParams.get('tab')), q = url.searchParams;
+      const posts = tab === 'moderation' ? await bot.posts().catch(e => ({ error: e.message })) : null;
+      const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
+      return html(portal({ tab, name: bot.name, status: bot.status(), settings: bot.settings, limit: env.DAILY_CALLS, details: bot.details(), url: env.APRON_URL, posts, flash }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
-      try { return back('ok', await action(await req.formData())); }
-      catch (e) { return back('error', e.message || 'failed'); }
+      let tab = 'overview';
+      try { const form = await req.formData(); tab = tabOf(form.get('tab')); return back(tab, 'ok', await action(form)); }
+      catch (e) { return back(tab, 'error', e.message || 'failed'); }
     }
     return new Response('Not found', { status: 404 });
   },

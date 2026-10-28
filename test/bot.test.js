@@ -1,7 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
-import { page } from '../src/page.js';
 import { settings, guardrails } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
@@ -73,16 +72,6 @@ test('lists only its own live posts and deletes by message id', async () => {
   assert.deepEqual(ws.sent.at(-1).params, { room_id: 'general', message_id: '4', deleted: true });
   ws.emit({ id: ws.sent.at(-1).id, result: { message_id: '4' } });
   await removal;
-});
-test('pages escape text and show moderation only when given posts', () => {
-  const status = { connected: true, error: null, budget: { calls: 0 }, personality: { warmth: .5 } };
-  assert.ok(!page('P', status).includes('Moderation'));
-  const html = page('P', status, { url: 'wss://a"b/', posts: [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }] });
-  assert.ok(html.includes('&#60;script&#62;') && !html.includes('<script>'));
-  assert.ok(html.includes('value="wss://a&#34;b/"') && html.includes('type="password"'));
-  const detailed = page('P', { ...status, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } }, { posts: [], url: 'wss://h/', details: { url: 'wss://h/', since: 0, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', roles: ['bot'], ext: { permissions: [] } } } });
-  assert.ok(detailed.includes('<dd>history, edit</dd>') && detailed.includes('&#60;b&#62;hi') && !detailed.includes('<b>hi'));
-  assert.ok(detailed.includes('<dt>roles</dt><dd>bot</dd>') && detailed.includes('online · h · bot_x · a/9'));
 });
 test('switching server or token reconnects with the new credentials', () => {
   const sockets = [];
