@@ -95,3 +95,54 @@ test('without a token it waits instead of connecting', () => {
   bot.tick();
   assert.equal(connects, 0); assert.equal(bot.status().error, 'no-apron-token');
 });
+function connected(request) {
+  const f = fixture(request);
+  f.bot.tick();
+  f.ws.emit({ method: 'server', params: {} });
+  f.ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  return f;
+}
+const reply = (ws, result) => ws.emit({ id: ws.sent.at(-1).id, result });
+test('a post whose newest snapshot is a tombstone is gone from the feed', async () => {
+  const { bot, ws } = connected();
+  const listing = bot.posts();
+  reply(ws, { messages: [
+    { room_id: 'general', message_id: '7', log_id: '7', from: { user_id: 'bot_me' }, body: { text: 'hello' } },
+    { room_id: 'general', message_id: '7', log_id: '8', prev_log_id: '7', from: { user_id: 'bot_me' }, deleted: true },
+    { room_id: 'general', message_id: '9', log_id: '9', from: { user_id: 'bot_me' }, body: { text: 'first' } },
+    { room_id: 'general', message_id: '9', log_id: '10', prev_log_id: '9', from: { user_id: 'bot_me' }, body: { text: 'edited' } },
+  ] });
+  assert.deepEqual((await listing).map(m => m.body.text), ['edited']);
+});
+test('paused, it ignores messages even when mentioned', async () => {
+  let calls = 0;
+  const { bot, ws } = connected(async () => { ++calls; });
+  bot.pause(true);
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
+  await bot.queue;
+  assert.equal(calls, 0); assert.equal(bot.status().paused, true);
+});
+test('a rename persists and is reapplied on the next sign-in', async () => {
+  const { bot, ws, saved } = connected();
+  const renaming = bot.rename('Room Ghost');
+  assert.deepEqual(ws.sent.at(-1).params, { name: 'Room Ghost' });
+  reply(ws, { you: { user_id: 'bot_me', name: 'Room Ghost' } });
+  await renaming;
+  assert.ok(saved.at(-1).includes('Room Ghost'));
+  const before = ws.sent.length;
+  bot.authed({ user_id: 'bot_me', name: 'Persona' });
+  assert.deepEqual(ws.sent.slice(before).find(f => f.method === 'me').params, { name: 'Room Ghost' });
+});
+test('an avatar goes through /avatar and a PUT to its write_url; clearing sets it empty', async () => {
+  const puts = [];
+  const { bot, ws } = connected(async (url, init) => { puts.push([url, init.method, init.headers['Content-Type']]); return new Response(null, { status: 200 }); });
+  const uploading = bot.avatar(new File(['png'], 'me.png', { type: 'image/png' }));
+  assert.deepEqual(ws.sent.at(-1), { method: 'command', id: ws.sent.at(-1).id, params: { room_id: 'general', body: { text: '/avatar', embeds: [{ kind: 'upload', title: 'me.png' }] } } });
+  reply(ws, { embeds: [{ embed_id: 'e1', kind: 'upload', write_url: 'https://apron.test/w/abc' }] });
+  await uploading;
+  assert.deepEqual(puts, [['https://apron.test/w/abc', 'PUT', 'image/png']]);
+  const clearing = bot.avatar(null);
+  assert.deepEqual(ws.sent.at(-1).params, { avatar: '' });
+  reply(ws, { you: { user_id: 'bot_me', avatar: '' } });
+  await clearing;
+});

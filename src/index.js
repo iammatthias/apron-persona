@@ -37,39 +37,61 @@ Bun.serve({
   fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/status.json') return Response.json(bot.status());
-    if (path === '/') return html(page(env.BOT_NAME, bot.status()));
+    if (path === '/') return html(page(bot.name, bot.status()));
     return new Response('Not found', { status: 404 });
   },
 });
 // Moderation has no login: bind it only behind a tailnet-only site. Writes
-// require a same-origin form post.
+// require a same-origin form post, and each reports its outcome on the page.
+const back = (key, text) => new Response(null, { status: 303, headers: { Location: `/?${key}=${encodeURIComponent(text)}` } });
+const actions = {
+  async '/apron'(form) {
+    const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim();
+    let valid = false; try { valid = new URL(url).protocol === 'wss:'; } catch {}
+    if (!valid || !token || token.length > 512) throw Error('a wss:// URL and a token are required');
+    write('apron.json', { url, token }, 0o600);
+    bot.use(url, token);
+    return 'Saved; reconnecting';
+  },
+  async '/delete'(form) {
+    const room_id = form.get('room_id'), message_id = form.get('message_id');
+    if (!bot.rooms.includes(room_id) || typeof message_id !== 'string') throw Error('unknown message');
+    if (!(await bot.posts()).some(m => m.message_id === message_id && m.room_id === room_id)) throw Error('not one of the bot\'s live posts');
+    await bot.remove(room_id, message_id);
+    return 'Deleted';
+  },
+  async '/name'(form) {
+    const name = String(form.get('name') ?? '').trim();
+    if (!name || name.length > 64) throw Error('a name is 1 to 64 characters');
+    await bot.rename(name);
+    return 'Renamed';
+  },
+  async '/avatar'(form) {
+    const file = form.get('avatar');
+    if (!(file instanceof Blob) || !file.size) throw Error('choose an image');
+    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 2097152) throw Error('a PNG, JPEG, GIF or WebP of at most 2 MB');
+    await bot.avatar(file);
+    return 'Avatar uploaded';
+  },
+  async '/avatar/clear'() { await bot.avatar(null); return 'Avatar cleared'; },
+  async '/pause'(form) {
+    bot.pause(form.get('paused') === 'on');
+    return bot.paused ? 'Paused: not reading or replying' : 'Resumed';
+  },
+};
 Bun.serve({
   port: +env.MOD_PORT,
   async fetch(req) {
-    const path = new URL(req.url).pathname;
-    if (req.method === 'GET' && path === '/') {
+    const url = new URL(req.url), action = actions[url.pathname];
+    if (req.method === 'GET' && url.pathname === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
-      return html(page(env.BOT_NAME, bot.status(), { posts, url: env.APRON_URL }));
+      const flash = url.searchParams.get('error') ? { error: url.searchParams.get('error') } : url.searchParams.get('ok') ? { ok: url.searchParams.get('ok') } : null;
+      return html(page(bot.name, bot.status(), { posts, url: env.APRON_URL, you: bot.you, flash }));
     }
-    if (req.method === 'POST' && path === '/apron') {
+    if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
-      const form = await req.formData();
-      const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim();
-      let valid = false; try { valid = new URL(url).protocol === 'wss:'; } catch {}
-      if (!valid || !token || token.length > 512) return new Response('Bad request: a wss:// URL and a token are required', { status: 400 });
-      write('apron.json', { url, token }, 0o600);
-      bot.use(url, token);
-      return new Response(null, { status: 303, headers: { Location: '/' } });
-    }
-    if (req.method === 'POST' && path === '/delete') {
-      if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
-      const form = await req.formData();
-      const room_id = form.get('room_id'), message_id = form.get('message_id');
-      if (!bot.rooms.includes(room_id) || typeof message_id !== 'string') return new Response('Bad request', { status: 400 });
-      const mine = (await bot.posts().catch(() => [])).some(m => m.message_id === message_id && m.room_id === room_id);
-      if (!mine) return new Response('Not found', { status: 404 });
-      await bot.remove(room_id, message_id).catch(() => {});
-      return new Response(null, { status: 303, headers: { Location: '/' } });
+      try { return back('ok', await action(await req.formData())); }
+      catch (e) { return back('error', e.message || 'failed'); }
     }
     return new Response('Not found', { status: 404 });
   },
