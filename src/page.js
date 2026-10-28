@@ -1,5 +1,5 @@
 const escape = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
-// `admin` ({ posts, url, you, flash }) is set only on the private moderation listener.
+// `admin` ({ posts, url, you, details, flash }) is set only on the private moderation listener.
 export function page(name, status, admin) {
   const traits = Object.entries(status.personality).map(([trait, v]) =>
     `<li><span>${trait}</span><meter min="0" max="1" value="${v}"></meter><b>${Math.round(v * 100)}</b></li>`).join('');
@@ -19,14 +19,15 @@ h2{font-size:1rem;margin:2.5rem 0 .5rem}article{border-top:1px solid color-mix(i
 article p{color:var(--fg);margin:0 0 .5rem;white-space:pre-wrap;overflow-wrap:anywhere}form{display:flex;justify-content:space-between;align-items:center;color:var(--muted);font-size:.85rem}
 input{font:inherit;color:inherit;background:none;border:1px solid color-mix(in srgb,var(--fg) 25%,transparent);border-radius:4px;padding:.3rem .5rem;width:100%;box-sizing:border-box;margin:.25rem 0 .75rem}
 .stack{display:block}.stack button,.go{color:var(--accent)}.row{gap:.75rem;justify-content:flex-start;margin:.5rem 0}
-.avatar{width:3rem;height:3rem;border-radius:50%;object-fit:cover}.flash{color:var(--fg);border-left:3px solid var(--accent);padding-left:.75rem}.flash.bad{border-color:#b3261e}
+.avatar{width:3rem;height:3rem;border-radius:50%;object-fit:cover}dl{display:grid;grid-template-columns:8rem 1fr;gap:.25rem .75rem;margin:0;font-size:.85rem}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+.flash{color:var(--fg);border-left:3px solid var(--accent);padding-left:.75rem}.flash.bad{border-color:#b3261e}
 button{font:inherit;color:#b3261e;background:none;border:1px solid currentColor;border-radius:4px;padding:.15rem .6rem;cursor:pointer}
 </style></head><body>
 <h1>${escape(name)}</h1>
-<p><span class="dot"></span>${state} · ${status.budget.calls} calls today</p>
+<p><span class="dot"></span>${state}${status.server ? ` · ${escape(status.server.host)} · ${escape(status.server.user_id)}${status.server.agent ? ` · ${escape(status.server.agent)}` : ''}` : ''} · ${status.budget.calls} calls today</p>
 <ul>${traits}</ul>
 <p>Learns the room's style. Mention it in Apron to chat.</p>
-${admin ? flash(admin.flash) + controls(admin.you, status.paused) + connection(admin.url) + feed(admin.posts) : ''}
+${admin ? flash(admin.flash) + server(admin.details) + controls(admin.you, status.paused) + connection(admin.url) + feed(admin.posts) : ''}
 </body></html>`;
 }
 function feed(posts) {
@@ -58,4 +59,12 @@ ${picture(you?.avatar)}
 <form class="row" method="post" action="/avatar/clear"><button>Clear avatar</button></form>
 <h2>Bot</h2>
 <form class="row" method="post" action="/pause"><input type="hidden" name="paused" value="${paused ? 'off' : 'on'}"><button class="go">${paused ? 'Resume' : 'Pause'}</button><span>${paused ? 'Not reading or replying.' : 'Reading the room; replies when mentioned.'}</span></form>`;
+}
+// Every field of the server greeting and the bot's user object, as returned.
+function server(d = {}) {
+  const show = v => escape(Array.isArray(v) ? v.join(', ') : v && typeof v === 'object' ? JSON.stringify(v, null, 1) : v);
+  const rows = (o, prefix = '') => Object.entries(o ?? {}).map(([k, v]) => `<dt>${escape(prefix + k)}</dt><dd>${show(v)}</dd>`).join('');
+  const since = d.since ? new Date(d.since).toISOString().slice(0, 16).replace('T', ' ') + ' UTC' : 'not connected';
+  return `<h2>Server</h2><dl><dt>url</dt><dd>${escape(d.url)}</dd><dt>connected</dt><dd>${since}</dd>${rows(d.server)}</dl>
+<h2>Signed in as</h2><dl>${d.you ? rows(d.you) : '<dt>—</dt><dd>not signed in</dd>'}</dl>`;
 }

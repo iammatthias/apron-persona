@@ -86,7 +86,7 @@ Bun.serve({
     if (req.method === 'GET' && url.pathname === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
       const flash = url.searchParams.get('error') ? { error: url.searchParams.get('error') } : url.searchParams.get('ok') ? { ok: url.searchParams.get('ok') } : null;
-      return html(page(bot.name, bot.status(), { posts, url: env.APRON_URL, you: bot.you, flash }));
+      return html(page(bot.name, bot.status(), { posts, url: env.APRON_URL, you: bot.you, details: bot.details(), flash }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });

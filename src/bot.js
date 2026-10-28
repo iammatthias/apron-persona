@@ -79,6 +79,7 @@ export class Bot {
       let frame; try { frame = JSON.parse(event.data); } catch { return; }
       const waiter = frame.id != null && this.waiting.get(frame.id);
       if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
+      if (frame.method === 'server') this.server = frame.params ?? {};
       if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
       if (frame.id === 'auth' && frame.error) { this.error = 'apron-auth-denied'; ws.close(); }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);
@@ -101,11 +102,11 @@ export class Bot {
   use(url, token) {
     this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
     this.ws?.close(); this.ws = null; this.ready = false; this.context = [];
-    this.bots.clear(); this.own.clear(); this.self = undefined; this.error = null;
+    this.bots.clear(); this.own.clear(); this.self = this.you = this.server = undefined; this.error = null;
     this.connect();
   }
   authed(you) {
-    this.self = you.user_id; this.you = you; this.ready = true; this.error = null;
+    this.self = you.user_id; this.you = you; this.ready = true; this.error = null; this.since = Date.now();
     if (you.name !== this.name) this.send('me', { name: this.name });
     for (const room_id of this.rooms) this.send('room_join', { room_id });
   }
@@ -161,7 +162,12 @@ export class Bot {
     this.lastReply = Date.now();
     this.context.push({ room: p.room_id, at: this.lastReply, role: 'assistant', content });
   }
+  // What the server's greeting and the auth result said, for the private page.
+  details() {
+    return { url: this.env.APRON_URL, since: this.ready ? this.since : null, server: this.server ?? null, you: this.you ?? null };
+  }
   status() {
-    return { connected: this.ready, paused: this.paused, error: this.error, budget: this.budget, personality: persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)) };
+    const server = this.ready ? { host: new URL(this.env.APRON_URL).host, agent: this.server?.agent ?? null, user_id: this.self } : null;
+    return { connected: this.ready, paused: this.paused, error: this.error, server, budget: this.budget, personality: persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)) };
   }
 }

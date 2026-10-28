@@ -79,6 +79,9 @@ test('pages escape text and show moderation only when given posts', () => {
   const html = page('P', status, { url: 'wss://a"b/', posts: [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }] });
   assert.ok(html.includes('&#60;script&#62;') && !html.includes('<script>'));
   assert.ok(html.includes('value="wss://a&#34;b/"') && html.includes('type="password"'));
+  const detailed = page('P', { ...status, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } }, { posts: [], url: 'wss://h/', details: { url: 'wss://h/', since: 0, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', roles: ['bot'], ext: { permissions: [] } } } });
+  assert.ok(detailed.includes('<dd>history, edit</dd>') && detailed.includes('&#60;b&#62;hi') && !detailed.includes('<b>hi'));
+  assert.ok(detailed.includes('<dt>roles</dt><dd>bot</dd>') && detailed.includes('online · h · bot_x · a/9'));
 });
 test('switching server or token reconnects with the new credentials', () => {
   const sockets = [];
