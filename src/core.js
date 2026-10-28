@@ -1,8 +1,8 @@
 export const axes = ['warmth', 'playfulness', 'curiosity', 'expressiveness'];
 // How each axis reads when it rises or falls, in the bot's words.
 export const leanings = { warmth: ['warmer', 'cooler'], playfulness: ['more playful', 'more serious'], curiosity: ['more curious', 'more matter-of-fact'], expressiveness: ['more expressive', 'terser'] };
-const levels = { low: 0, reserved: .25, balanced: .5, elevated: .75, high: 1 };
-const descriptions = [
+export const levels = { low: 0, reserved: .25, balanced: .5, elevated: .75, high: 1 };
+export const descriptions = [
   'social warmth, from reserved to affectionate',
   'playfulness, from serious to humorous',
   'curiosity, from matter-of-fact to exploratory',
@@ -16,10 +16,14 @@ export function classify(text) {
     { role: 'user', content: text },
   ];
 }
-export function decision(data) {
+// The JSON object a chat model replied with, fenced or not; anything else throws `code`.
+export function answer(data, code) {
   const raw = data?.choices?.[0]?.message?.content;
-  if (typeof raw !== 'string') throw Error('invalid-decision');
-  let a; try { a = JSON.parse(raw.replace(/^\s*```(?:json)?|```\s*$/g, '')); } catch { throw Error('invalid-decision'); }
+  if (typeof raw !== 'string') throw Error(code);
+  try { return JSON.parse(raw.replace(/^\s*```(?:json)?|```\s*$/g, '')); } catch { throw Error(code); }
+}
+export function decision(data) {
+  const a = answer(data, 'invalid-decision');
   const valid = x => Number.isFinite(x) && x >= 0 && x <= 1;
   if (!valid(a?.learn) || !valid(a?.reply)) throw Error('invalid-decision');
   const vector = axes.map(k => {
