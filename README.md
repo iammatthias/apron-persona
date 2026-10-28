@@ -17,6 +17,7 @@ Then:
 ```sh
 ff-deploy apron-persona
 add-public-site apron-bot.farfield.systems 8902   # homepage
+add-site apron-bot 8903                            # moderation, tailnet only
 ```
 
 Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).

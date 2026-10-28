@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
+import { page } from '../src/page.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 // A fake Apron connection that records sent frames; `emit` delivers server frames.
@@ -55,4 +56,26 @@ test('authenticates silently and replies only to a mention', async () => {
   assert.deepEqual(kinds, ['classify', 'classify', 'reply']);
   assert.deepEqual(ws.sent.at(-1).params, { room_id: 'general', body: { text: 'hi there' }, reply_to: { message_id: '12' } });
   assert.equal(ws.sent.filter(f => f.method === 'message').length, 1);
+});
+test('lists only its own live posts and deletes by message id', async () => {
+  const { bot, ws } = fixture();
+  bot.tick();
+  ws.emit({ method: 'server', params: {} });
+  ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  const listing = bot.posts();
+  const history = ws.sent.at(-1);
+  assert.deepEqual(history.params, { room_id: 'general', limit: 200 });
+  const m = (id, user_id, extra) => ({ room_id: 'general', message_id: id, log_id: id, from: { user_id }, body: { text: id }, ...extra });
+  ws.emit({ id: history.id, result: { messages: [m('1', 'bot_me'), m('2', 'carol'), m('3', 'bot_me', { deleted: true, body: undefined }), m('4', 'bot_me')] } });
+  assert.deepEqual((await listing).map(x => x.message_id), ['4', '1']);
+  const removal = bot.remove('general', '4');
+  assert.deepEqual(ws.sent.at(-1).params, { room_id: 'general', message_id: '4', deleted: true });
+  ws.emit({ id: ws.sent.at(-1).id, result: { message_id: '4' } });
+  await removal;
+});
+test('pages escape text and show moderation only when given posts', () => {
+  const status = { connected: true, error: null, budget: { calls: 0 }, personality: { warmth: .5 } };
+  assert.ok(!page('P', status).includes('Moderation'));
+  const html = page('P', status, [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }]);
+  assert.ok(html.includes('&#60;script&#62;') && !html.includes('<script>'));
 });

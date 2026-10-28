@@ -10,7 +10,7 @@ export class Bot {
     this.budget = saved.budget ?? { day: '', calls: 0 };
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.error = null;
-    this.seq = 0; this.ready = false; this.pending = 0; this.queue = Promise.resolve();
+    this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve();
   }
   save() {
     this.store.save({ personality: this.state, budget: this.budget });
@@ -28,15 +28,35 @@ export class Bot {
   send(method, params, id = String(++this.seq)) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ method, id, params }));
   }
+  // A request whose response resolves the returned promise.
+  call(method, params) {
+    if (!this.ready || this.ws?.readyState !== 1) return Promise.reject(Error('not-connected'));
+    const id = String(++this.seq);
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => { this.waiting.delete(id); reject(Error('timeout')); }, 10000);
+      this.waiting.set(id, frame => { clearTimeout(timer); frame.error ? reject(Error('apron-request-failed')) : resolve(frame.result); });
+      this.send(method, params, id);
+    });
+  }
+  // The bot's own live messages, newest first, read from Apron and never stored.
+  async posts() {
+    const pages = await Promise.all(this.rooms.map(room_id => this.call('history', { room_id, limit: 200 })));
+    return pages.flatMap(p => p?.messages ?? [])
+      .filter(m => m.from?.user_id === this.self && !m.deleted && typeof m.body?.text === 'string')
+      .sort((a, b) => (BigInt(b.log_id) > BigInt(a.log_id) ? 1 : -1));
+  }
+  remove(room_id, message_id) { return this.call('message', { room_id, message_id, deleted: true }); }
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
     this.ws = ws; this.connectedAt = this.lastFrame = Date.now(); this.ready = false;
     const closed = () => { if (this.ws === ws) { this.ws = null; this.ready = false; this.context = []; } };
     ws.addEventListener('close', closed); ws.addEventListener('error', closed);
     ws.addEventListener('message', event => {
-      if (this.ws !== ws || typeof event.data !== 'string' || event.data.length > 65536) return;
+      if (this.ws !== ws || typeof event.data !== 'string' || event.data.length > 1048576) return;
       this.lastFrame = Date.now();
       let frame; try { frame = JSON.parse(event.data); } catch { return; }
+      const waiter = frame.id != null && this.waiting.get(frame.id);
+      if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
       if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
       if (frame.id === 'auth' && frame.error) { this.error = 'apron-auth-denied'; ws.close(); }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);

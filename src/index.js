@@ -4,7 +4,7 @@ import { page } from './page.js';
 const defaults = {
   APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona',
   DECISION_MODEL: 'openrouter/free', CHAT_MODEL: 'openrouter/free', DAILY_CALLS: '40', HALF_LIFE_DAYS: '30',
-  DATA_DIR: '/data', PORT: '8080',
+  DATA_DIR: '/data', PORT: '8080', MOD_PORT: '8081',
 };
 const env = { ...defaults, ...process.env };
 for (const k of ['APRON_TOKEN', 'OPENROUTER_API_KEY', 'HASH_SECRET']) if (!env[k]) throw Error(`missing ${k}`);
@@ -28,12 +28,35 @@ const tick = () => {
 };
 tick();
 setInterval(tick, 60000);
+const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 Bun.serve({
   port: +env.PORT,
   fetch(req) {
     const path = new URL(req.url).pathname;
     if (path === '/status.json') return Response.json(bot.status());
-    if (path === '/') return new Response(page(env.BOT_NAME, bot.status()), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    if (path === '/') return html(page(env.BOT_NAME, bot.status()));
+    return new Response('Not found', { status: 404 });
+  },
+});
+// Moderation: bind only behind a private site. Deletes require a same-origin form post.
+Bun.serve({
+  port: +env.MOD_PORT,
+  async fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (req.method === 'GET' && path === '/') {
+      const posts = await bot.posts().catch(e => ({ error: e.message }));
+      return html(page(env.BOT_NAME, bot.status(), posts));
+    }
+    if (req.method === 'POST' && path === '/delete') {
+      if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
+      const form = await req.formData();
+      const room_id = form.get('room_id'), message_id = form.get('message_id');
+      if (!bot.rooms.includes(room_id) || typeof message_id !== 'string') return new Response('Bad request', { status: 400 });
+      const mine = (await bot.posts().catch(() => [])).some(m => m.message_id === message_id && m.room_id === room_id);
+      if (!mine) return new Response('Not found', { status: 404 });
+      await bot.remove(room_id, message_id).catch(() => {});
+      return new Response(null, { status: 303, headers: { Location: '/' } });
+    }
     return new Response('Not found', { status: 404 });
   },
 });
