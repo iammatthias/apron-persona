@@ -11,6 +11,7 @@
   "vars": {
     "APRON_URL": "wss://server.apron.chat/",
     "ROOMS": "general",
+    "POLL_MINUTES": "5",
     "BOT_NAME": "Apron Persona",
     "DECISION_MODEL": "inception/mercury-decide:free",
     "CHAT_MODEL": "openrouter/free",
