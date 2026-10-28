@@ -18,6 +18,7 @@ function socket() {
     },
   };
 }
+const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, cooldown: 15, organic: false, organic_threshold: .9, organic_gap: 30 };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(s)) }, { connect: () => ws, request });
@@ -132,15 +133,15 @@ test('configure applies nothing unless every key parses', () => {
   assert.throws(() => bot.configure({ persona: 'Hello', mood: 'x' }), { message: 'unknown setting mood' });
   assert.throws(() => bot.configure({ persona: 'Hello', paused: 'maybe' }), { message: 'paused is on or off' });
   assert.throws(() => bot.configure({ name: 'Ghost' }), { message: 'unknown setting name' });
-  assert.deepEqual(bot.settings, { persona: settings.persona.default(), paused: false });
+  assert.deepEqual(bot.settings, defaults);
   assert.equal(saved.length, 0);
 });
 test('a legacy state.json with top-level name and paused migrates into settings', async () => {
   const personality = { version: 1, at: 0, cells: {} };
   const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, name: 'Old Ghost', paused: true }));
-  assert.deepEqual(bot.settings, { persona: settings.persona.default(), paused: true });
+  assert.deepEqual(bot.settings, { ...defaults, paused: true });
   bot.save();
-  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { persona: settings.persona.default(), paused: true } });
+  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { ...defaults, paused: true } });
 });
 test('a saved persona persists and becomes the next reply\'s system message', async () => {
   const bodies = [];
