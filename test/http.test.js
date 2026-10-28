@@ -15,12 +15,14 @@ test('the public listener serves only the status page and its JSON', async () =>
   assert.equal((await get(site, '/?tab=persona')).status, 200);
   assert.equal((await get(site, '/settings', { method: 'POST' })).status, 404);
 });
-test('admin writes need a same-origin form post and redirect to their tab', async () => {
+test('admin writes need a same-origin form post and redirect to their view and room', async () => {
   const { bot, admin } = listeners();
-  const form = new URLSearchParams({ tab: 'overview', paused: 'on' });
+  const form = new URLSearchParams({ view: 'who', room: 'general', paused: 'on' });
   assert.equal((await get(admin, '/settings', { method: 'POST', body: form })).status, 403);
   const res = await get(admin, '/settings', { method: 'POST', body: form, headers: { 'Sec-Fetch-Site': 'same-origin' } });
-  assert.equal(res.headers.get('Location'), '/?tab=overview&ok=Paused%3A%20not%20reading%20or%20replying');
+  assert.equal(res.headers.get('Location'), '/?view=who&room=general&ok=Paused%3A%20not%20reading%20or%20replying');
+  const bad = await get(admin, '/settings', { method: 'POST', body: new URLSearchParams({ view: 'x', room: 'nope', persona: '' }), headers: { 'Sec-Fetch-Site': 'same-origin' } });
+  assert.equal(bad.headers.get('Location'), '/?view=transcript&room=general&error=a%20persona%20is%201%20to%204000%20characters');
   assert.equal(bot.settings.paused, true);
 });
 const read = async reader => new TextDecoder().decode((await reader.read()).value);
@@ -61,11 +63,12 @@ test('a stream nobody reads is cut off instead of buffering', async () => {
   assert.equal(chunks.length, 32);
   assert.equal(chunks[31], `data: ${JSON.stringify(bot.log.list()[30])}\n\n`);
 });
-test('the activity tab shows the newest 50 events first, and the overview the last error', async () => {
+test('the dashboard shows the transcript and the last error', async () => {
   const { bot, admin } = listeners();
-  for (let i = 0; i < 60; ++i) bot.fail(`e${i}`);
-  const html = await (await get(admin, '/?tab=activity')).text();
-  assert.ok(html.includes('<h3>Last 50 events</h3>'));
-  assert.deepEqual([...html.matchAll(/code (e\d+)/g)].map(m => m[1]).filter((_, i) => i < 2 || i > 47), ['e59', 'e58', 'e11', 'e10']);
-  assert.ok((await (await get(admin, '/')).text()).includes('last error e59 at '));
+  bot.log.push({ kind: 'message', room: 'general', message_id: '1', from: 'u_a', name: 'ana', mentioned: true, text: '@bot hi', outcome: 'replied', learn_p: .9, reply_p: .9 });
+  bot.fail('inference-<429>');
+  const html = await (await get(admin, '/')).text();
+  assert.ok(html.includes('<p>@bot hi</p></div></div><div class="note ok">answered. I was 0.90 sure a reply fit.</div>'));
+  assert.ok(html.includes('last error inference-&#60;429&#62; at '));
+  assert.ok(html.includes("I can't read my history right now (not-connected)."));
 });

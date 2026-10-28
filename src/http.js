@@ -1,4 +1,5 @@
-import { page, portal, tabs } from './page.js';
+import { page } from './page.js';
+import { dashboard, roomOf, viewOf } from './dashboard.js';
 import { settings } from './settings.js';
 const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 const missing = () => new Response('Not found', { status: 404 });
@@ -37,11 +38,11 @@ function stream(log, signal, every) {
     cancel() { stop(); },
   }, new CountQueuingStrategy({ highWaterMark: 32 }));
 }
-// The admin portal. Writes require a same-origin form post, and each reports its outcome on the tab it came from.
+// The admin dashboard. Writes require a same-origin form post, and each reports its outcome on the view and room it came from.
 // saveApron(url, token) persists a new server and token; ping is the event stream's keepalive interval.
 export function admin(bot, saveApron, { ping = 25000 } = {}) {
-  const tabOf = id => tabs.some(t => t.id === id) ? id : 'overview';
-  const back = (tab, key, text) => new Response(null, { status: 303, headers: { Location: `/?tab=${tab}&${key}=${encodeURIComponent(text)}` } });
+  const place = q => ({ view: viewOf(q.get('view')), room: roomOf(bot.rooms, q.get('room')) });
+  const back = ({ view, room }, key, text) => new Response(null, { status: 303, headers: { Location: `/?view=${view}&room=${encodeURIComponent(room)}&${key}=${encodeURIComponent(text)}` } });
   const actions = {
     async '/apron'(form) {
       const url = String(form.get('url') ?? '').trim(), token = String(form.get('token') ?? '').trim();
@@ -73,18 +74,17 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       server?.timeout(req, 0);
       return new Response(stream(bot.log, req.signal, ping), { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
     }
+    const q = url.searchParams, ctx = { ...place(q), events: bot.log.list(), rooms: bot.rooms };
     if (req.method === 'GET' && url.pathname === '/') {
-      const tab = tabOf(url.searchParams.get('tab')), q = url.searchParams;
-      const posts = tab === 'moderation' ? await bot.posts().catch(e => ({ error: e.message })) : null;
+      const posts = await bot.posts().catch(e => ({ error: e.message }));
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
-      const events = tab === 'activity' ? bot.log.list().slice(-50).reverse() : null;
-      return html(portal({ tab, name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, limit: bot.env.DAILY_CALLS, details: bot.details(), url: bot.env.APRON_URL, posts, events, flash }));
+      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
-      let tab = 'overview';
-      try { const form = await req.formData(); tab = tabOf(form.get('tab')); return back(tab, 'ok', await action(form)); }
-      catch (e) { return back(tab, 'error', e.message || 'failed'); }
+      let from = place(new URLSearchParams());
+      try { const form = await req.formData(); from = place(form); return back(from, 'ok', await action(form)); }
+      catch (e) { return back(from, 'error', e.message || 'failed'); }
     }
     return missing();
   };

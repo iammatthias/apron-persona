@@ -1,55 +1,86 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { page, portal, tabs } from '../src/page.js';
+import { page } from '../src/page.js';
+import { dashboard } from '../src/dashboard.js';
 import { guardrails } from '../src/settings.js';
-const status = { connected: true, paused: false, error: null, budget: { calls: 3 }, personality: { warmth: .5 }, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } };
-const ctx = { tab: 'overview', name: 'P<i>', status, settings: { persona: 'canary-persona </textarea><script>x</script> {name}', paused: false }, limit: '40', details: { url: 'wss://h/', since: 0, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', name: 'P', roles: ['bot'], avatar: 'https://h/a.png' } }, url: 'wss://a"b/', posts: null, flash: null };
-const nav = '<nav><a href="/?tab=overview">Overview</a><a href="/?tab=activity">Activity</a><a href="/?tab=persona" aria-current="page">Persona</a><a href="/?tab=moderation">Moderation</a><a href="/?tab=connection">Connection</a></nav>';
-test('the portal has five tabs and marks the active one', () => {
-  assert.deepEqual(tabs.map(t => t.id), ['overview', 'activity', 'persona', 'moderation', 'connection']);
-  const html = portal({ ...ctx, tab: 'persona', flash: { ok: 'Saved <now>' } });
-  assert.ok(html.includes(nav));
-  assert.ok(html.includes('<title>P&#60;i&#62; · Persona</title>') && html.includes('<h1>P&#60;i&#62;</h1>'));
-  assert.ok(html.includes('<main><p class="flash">Saved &#60;now&#62;</p>'));
-  assert.ok(portal({ ...ctx, tab: 'nope' }).includes('<a href="/?tab=overview" aria-current="page">Overview</a>'));
+const now = Date.UTC(2026, 9, 28, 14, 31);
+const status = { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 3 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 }, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } };
+const at = m => now - m * 60000;
+const events = [
+  { at: at(9), kind: 'message', room: 'general', message_id: '1', from: 'u_ben', name: 'ben', mentioned: false, outcome: 'learned-only', learn_p: .91, reply_p: .1, style: [.75, .5, .5, .5] },
+  { at: at(8), kind: 'message', room: 'general', message_id: '2', from: 'u_ana', name: 'ana<i>', mentioned: true, text: '@bot </p><script>x</script>', outcome: 'replied', learn_p: .5, reply_p: .97 },
+  { at: at(7), kind: 'posted', room: 'general', message_id: 'p"1', reply_to: '2', text: '<img src=x onerror=alert(1)>' },
+  { at: at(6), kind: 'message', room: 'general', message_id: '3', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot one', outcome: 'declined', learn_p: .5, reply_p: .42 },
+  { at: at(5), kind: 'message', room: 'random', message_id: '4', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot two', outcome: 'budget' },
+  { at: at(4), kind: 'message', room: 'general', message_id: '5', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot three', outcome: 'reply-failed', learn_p: .5, reply_p: .9, detail: 'inference-502' },
+  { at: at(3), kind: 'message', room: 'elsewhere-room', message_id: '6', from: 'u_zed', name: 'zed', mentioned: false, outcome: 'other-room' },
+];
+const ctx = {
+  name: 'P<i>', status, now, events, rooms: ['general', 'random'], room: 'general', view: 'transcript', edit: false, flash: null, lastError: null, limit: '40',
+  settings: { persona: 'canary-persona </textarea><script>x</script> {name}', paused: false },
+  details: { url: 'wss://h/', since: at(14), latency: 45, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', name: 'P', roles: ['bot'], avatar: 'https://h/a.png' } },
+  posts: [{ room_id: 'general', message_id: '9', log_id: String(at(7)), body: { text: '<script>said</script>' } }],
+};
+test('the header says what the bot is doing, and its control reads as stop or resume', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes("<h1>P&#60;i&#62;</h1><p>I'm listening in #general and #random on h. 3 of my 40 calls are spent today.</p>"));
+  assert.ok(html.includes('<input type="hidden" name="paused" value="on">\n<button class="switch on"><span><b>Listening</b> <small>tap to stop</small></span><i></i></button>'));
+  const paused = dashboard({ ...ctx, status: { ...status, paused: true } });
+  assert.ok(paused.includes("<p>I'm paused, so I'm not reading #general and #random on h. 3 of my 40 calls are spent today.</p>"));
+  assert.ok(paused.includes('<input type="hidden" name="paused" value="off">\n<button class="switch off"><span><b>Paused</b> <small>tap to resume</small></span><i></i></button>'));
+  assert.ok(dashboard({ ...ctx, status: { ...status, connected: false, server: null, error: 'no-apron-token', budget: { day: '2026-10-27', calls: 9 } } })
+    .includes("<p>I can't reach h (no-apron-token). 0 of my 40 calls are spent today.</p>"));
 });
-test('the persona tab escapes the editor and previews the full prompt with fixed guardrails', () => {
-  const html = portal({ ...ctx, tab: 'persona' });
-  assert.ok(html.includes('<textarea name="persona" maxlength="4000" required>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; {name}</textarea>'));
-  assert.ok(!html.includes('<script>'));
-  assert.ok(html.includes('<p><small>persona</small>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; P&#60;i&#62;</p>'));
-  assert.ok(html.includes(`<p class="fixed"><small>guardrails · fixed, not editable</small>${guardrails}</p>`));
-  assert.ok(html.includes('<input type="hidden" name="tab" value="persona">') && html.includes('action="/persona/reset"'));
+test('room tabs badge unanswered mentions, and other rooms collect under ignored elsewhere', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes('<nav class="rooms"><a href="/?room=general" aria-current="page">#general <em>2 unanswered</em></a><a href="/?room=random">#random <em>1 unanswered</em></a><a class="elsewhere" href="/?room=elsewhere">ignored elsewhere 1</a></nav>'));
+  const elsewhere = dashboard({ ...ctx, room: 'elsewhere' });
+  assert.ok(elsewhere.includes("<p><span class=\"n\">zed in #elsewhere-room</span> · not a room I watch.</p>"));
+  assert.ok(dashboard({ ...ctx, events: [] }).includes('<p class="empty">Nothing here since I started.</p>'));
 });
-test('overview shows status, budget and the server details; moderation and connection escape their data', () => {
-  const html = portal(ctx);
-  assert.ok(html.includes('3 of 40 calls today') && html.includes('<button class="primary">Pause</button>'));
-  assert.ok(html.includes('<dd>history, edit</dd>') && html.includes('&#60;b&#62;hi') && !html.includes('<b>hi'));
-  assert.ok(html.includes('<dt>avatar</dt><dd>https://h/a.png</dd>') && !html.includes('<img'));
-  const mod = portal({ ...ctx, tab: 'moderation', posts: [{ room_id: 'general', message_id: '9', log_id: '1793214835055', body: { text: '<script>x</script>' } }] });
-  assert.ok(mod.includes('<p>&#60;script&#62;x&#60;/script&#62;</p>') && mod.includes('<input type="hidden" name="message_id" value="9">'));
-  const conn = portal({ ...ctx, tab: 'connection' });
-  assert.ok(conn.includes('value="wss://a&#34;b/"') && conn.includes('type="password"'));
+test('a message that did not engage the bot is one quiet line with no text', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes(`<div class="m q" data-at="${at(9)}"><div class="msg"><time datetime="2026-10-28T14:22:00.000Z">14:22</time><p><span class="n">ben</span> · learned. a little warmer. (0.91)</p></div></div>`));
 });
-test('the public page carries no persona or admin content', () => {
+test('hostile text in a mention and in the bot\'s reply is escaped', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes('<div class="n">ana&#60;i&#62;</div><p>@bot &#60;/p&#62;&#60;script&#62;x&#60;/script&#62;</p>'));
+  assert.ok(html.includes('<div class="n">me</div><p>&#60;img src=x onerror=alert(1)&#62;</p></div></div><div class="note">my reply to ana&#60;i&#62;. <form method="post" action="/delete">'));
+  assert.ok(html.includes('<input type="hidden" name="message_id" value="p&#34;1">'));
+  assert.ok(html.includes('<p>&#60;script&#62;said&#60;/script&#62;</p>'));
+  assert.ok(!html.includes('<script'));
+  assert.ok(!html.includes('<img src=x') && !html.includes('<b>hi'));
+});
+test('who I am shows the persona, the drift from the start, and the exact prompt; edit escapes the editor', () => {
+  const html = dashboard({ ...ctx, view: 'who' });
+  assert.ok(html.includes('<body class="v-who">') && html.includes('<a href="/?view=who&room=general" aria-current="page">who I am</a>'));
+  assert.ok(html.includes('<p class="persona">canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; {name}</p>'));
+  assert.ok(html.includes('<span>warmth</span><i style="--v:62%" title="0.62"></i>'));
+  assert.ok(html.includes('<p class="lean">This room has made me warmer and more matter-of-fact than where I started (the tick at 0.5).</p>'));
+  assert.ok(html.includes('<div><small>persona</small>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; P&#60;i&#62;</div>'));
+  assert.ok(html.includes(`<div class="fixed"><small>guardrails · fixed</small>${guardrails}</div>`));
+  const edit = dashboard({ ...ctx, view: 'who', edit: true });
+  assert.ok(edit.includes('<textarea name="persona" maxlength="4000" required>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; {name}</textarea>'));
+  assert.ok(edit.includes('<input type="hidden" name="view" value="who">') && edit.includes('action="/persona/reset"'));
+  assert.ok(dashboard({ ...ctx, status: { ...status, personality: { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 } } }).includes("I'm still where I started, at the tick (0.5)."));
+});
+test('today counts calls as cells and sums up the day', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes(`<div class="day" style="--n:40">${'<i class="u"></i>'.repeat(3)}${'<i></i>'.repeat(37)}</div>`));
+  assert.ok(html.includes(`3 of 40 calls. 1 reply, 3 mentions I didn't answer, 1 thing learned since <time datetime="${new Date(at(9)).toISOString()}">14:22 UTC</time>.</p>`));
+  assert.ok(!dashboard({ ...ctx, limit: '0' }).includes('class="day"'));
+});
+test('where I live names the server, connection and ping, and previews only https or data:image avatars', () => {
+  const html = dashboard({ ...ctx, lastError: { code: 'inference-<429>', at: Date.UTC(2026, 9, 28, 12, 0, 5) } });
+  assert.ok(html.includes('<img src="https://h/a.png" alt=""><span>wss://h/ as bot_x, connected 14m, ping 45ms.<br>last error inference-&#60;429&#62; at 2026-10-28 12:00:05 UTC</span>'));
+  assert.ok(html.includes('<dt>capabilities</dt><dd>history, edit</dd>') && html.includes('<dt>welcome</dt><dd>&#60;b&#62;hi&#60;/b&#62;</dd>'));
+  assert.ok(html.includes('<input name="url" value="wss://h/" required>') && html.includes('type="password"'));
+  for (const avatar of ['javascript:alert(1)', 'http://h/a.png', 'data:text/html,x']) assert.ok(!dashboard({ ...ctx, details: { ...ctx.details, you: { ...ctx.details.you, avatar } } }).includes('<img'), avatar);
+  assert.ok(dashboard({ ...ctx, details: { ...ctx.details, you: { ...ctx.details.you, avatar: 'data:image/png;base64,AA' } } }).includes('<img src="data:image/png;base64,AA" alt="">'));
+  assert.ok(dashboard({ ...ctx, details: { url: 'wss://h/', since: null }, status: { ...status, connected: false, error: 'connecting' } }).includes('wss://h/, not connected (connecting).'));
+});
+test('the public page carries no transcript, persona or admin content', () => {
   const html = page('P', { ...status, paused: true });
   assert.ok(html.includes('paused · h · bot_x · a/9 · 3 calls today'));
-  for (const s of ['canary-persona', guardrails, '<form', '<nav', 'Persona', 'token', 'Moderation']) assert.ok(!html.includes(s), s);
-});
-test('overview shows the last error and when, even while connected', () => {
-  const html = portal({ ...ctx, lastError: { code: 'inference-<429>', at: Date.UTC(2026, 9, 28, 12, 0, 5) } });
-  assert.ok(html.includes('<p class="big"><span class="dot on"></span>online</p>'));
-  assert.ok(html.includes('3 of 40 calls today<br>last error inference-&#60;429&#62; at 2026-10-28 12:00:05 UTC</p>'));
-  assert.ok(!portal(ctx).includes('last error'));
-});
-test('the activity tab lists events with their labels and escaped fields', () => {
-  const events = [
-    { at: Date.UTC(2026, 9, 28, 12, 0, 2), kind: 'message', room: 'general', message_id: '9', from: '<b>', mentioned: true, outcome: 'declined', learn_p: .9, reply_p: .4 },
-    { at: Date.UTC(2026, 9, 28, 12, 0, 1), kind: 'settings', keys: ['persona', 'paused'] },
-    { at: Date.UTC(2026, 9, 28, 12, 0, 0), kind: 'auth-denied' },
-  ];
-  const html = portal({ ...ctx, tab: 'activity', events });
-  assert.ok(html.includes('<h3>Last 3 events</h3><dl><dt>2026-10-28 12:00:02 UTC</dt><dd>Mentioned; reply probability below 0.7<br><span class="note">room general · message_id 9 · from &#60;b&#62; · mentioned true · learn_p 0.9 · reply_p 0.4</span></dd>'
-    + '<dt>2026-10-28 12:00:01 UTC</dt><dd>Settings saved<br><span class="note">keys persona, paused</span></dd><dt>2026-10-28 12:00:00 UTC</dt><dd>Token refused</dd></dl>'));
-  assert.ok(portal({ ...ctx, tab: 'activity', events: [] }).includes('<p>Nothing yet since the bot started.</p>'));
+  for (const s of ['canary-persona', guardrails, '<form', '<nav', 'who I am', 'token', 'answered', 'class="chat"', '<script']) assert.ok(!html.includes(s), s);
 });
