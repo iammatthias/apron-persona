@@ -45,7 +45,7 @@ curl -X POST "$BOT_URL/start" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
 curl "$BOT_URL/status" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
 ```
 
-`POST /stop` disables the bot and closes the connection. Endpoints require the bearer secret. The bot starts disabled. A one-minute cron and Durable Object alarm reconnect and checkpoint once enabled. Authentication failures retry every minute so replacing the secret can recover. Status exposes only aggregate style, connection state, budget counts, and generic error codes.
+`POST /stop` disables the bot and closes the connection. Endpoints require the bearer secret. The bot starts disabled. A one-minute Durable Object alarm reconnects and pings once enabled; there is no cron, so a stopped bot costs nothing. Authentication failures retry every minute so replacing the secret can recover. Status exposes only aggregate style, connection state, budget counts, and generic error codes.
 
 ## Behavior
 
@@ -61,9 +61,16 @@ curl "$BOT_URL/status" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
 
 KV key `personality:v1` stores only `{ version, at, cells }`. Durable Object storage holds enabled state, daily call counts, and alarm metadata. Source text, replies, names, user IDs, and content fingerprints are never intentionally written to storage or logs. Worker observability is disabled and code has no console logging. Raw text is sent transiently to inference providers. Apron's server can retain messages and the bot's posted replies under its own policy. Provider/account policies and legal exceptions still apply; numerical aggregation is not a formal anonymity or differential-privacy guarantee.
 
-Snapshots are written about once a minute by one writer. KV is eventually consistent; a restart can lose recent observations or load a stale snapshot. This intentionally accepts approximate personality weights. Context and duplicate suppression reset on restart. Outgoing WebSockets do not hibernate and can incur Cloudflare duration charges even with free inference.
+Snapshots are written at most once every ten minutes, and on `/stop`, by one writer. KV is eventually consistent; a restart can lose recent observations or load a stale snapshot. This intentionally accepts approximate personality weights. Context and duplicate suppression reset on restart. 
 
 This implements community style. Facts, personal histories, and shared lore are not retained. Edits/deletions do not retroactively reverse aggregate contributions. Use only rooms whose members agree to this processing.
+
+## Costs
+
+- Inference is free models only, capped at `DAILY_CALLS`. Also set a $0 credit limit on the OpenRouter key so a paid route can never bill.
+- The outgoing WebSocket cannot hibernate, so a running bot keeps one 128 MB Durable Object active all month: about 330,000 GB-s, inside the Workers Paid 400,000 GB-s allowance (about $4/month if nothing else uses it). `POST /stop` brings this to zero.
+- Each running minute costs one alarm and one ping; KV writes stay at or below 144 a day.
+- Workers Builds runs only for `main` and skips Markdown-only changes.
 
 ## Files and validation
 

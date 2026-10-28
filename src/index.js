@@ -21,6 +21,7 @@ export class Bot extends DurableObject {
       this.enabled = true; await this.ctx.storage.put('enabled', true); await this.tick();
     } else if (req.method === 'POST' && path === '/stop') {
       this.enabled = false; await this.ctx.storage.put('enabled', false);
+      await this.flush().catch(() => {});
       this.ws?.close(); this.ws = null; this.ready = false;
       this.context = []; this.seen.clear(); this.people.clear();
       await this.ctx.storage.deleteAlarm();
@@ -28,7 +29,6 @@ export class Bot extends DurableObject {
     return Response.json({ enabled: this.enabled, connected: !!this.ready, error: this.error, budget: this.budget, personality: persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)) });
   }
   async alarm() { await this.tick(); }
-  async heartbeat() { await this.tick(); }
   async tick() {
     if (!this.enabled || this.ticking) return;
     this.ticking = true;
@@ -36,7 +36,7 @@ export class Bot extends DurableObject {
     await this.ctx.storage.setAlarm(Date.now() + 60000);
     this.prune();
     try {
-      await this.flush();
+      if (Date.now() - (this.flushedAt ?? 0) >= 600000) { await this.flush(); this.flushedAt = Date.now(); }
       if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.ws.close();
       if (!this.ws && !this.connecting) await this.connect();
       if (this.ready && Date.now() - this.lastFrame > 120000) this.ws.close();
@@ -156,8 +156,5 @@ export default {
     const auth = req.headers.get('Authorization') ?? '';
     if (!env.ADMIN_TOKEN || auth !== `Bearer ${env.ADMIN_TOKEN}`) return new Response('Unauthorized', { status: 401 });
     return env.BOT.getByName('community').fetch(req);
-  },
-  async scheduled(_event, env, ctx) {
-    ctx.waitUntil(env.BOT.getByName('community').heartbeat());
   },
 };
