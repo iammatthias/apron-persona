@@ -203,7 +203,7 @@ export class Bot {
       output = await this.api({
         model: this.env.CHAT_MODEL, max_tokens: 1500,
         messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
-          { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8)) }],
+          { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8), organic) }],
       });
     } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
     const raw = output?.choices?.[0]?.message?.content;

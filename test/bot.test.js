@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
-import { settings, guardrails, cue } from '../src/settings.js';
+import { settings, guardrails, cue, chime } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 // A fake Apron connection that records sent frames and acknowledges each new post; `emit` delivers server frames.
@@ -321,12 +321,14 @@ test('the reply bar and the cooldown follow the settings', async () => {
 });
 const unaddressed = (outcome, extra) => seen(outcome, { addressed: undefined, learn_p: .9, ...extra });
 test('a chime-in posts a plain message, records it as posted, and keeps the text it answered', async () => {
-  const f = connected(model({ scores: { reply: .93 }, text: 'the broth is the point' }));
+  const prompts = [], answer = model({ scores: { reply: .93 }, text: 'the broth is the point' });
+  const f = connected(async (url, init) => { prompts.push(JSON.parse(init.body).messages.at(-1).content); return answer(url, init); });
   assert.deepEqual(await deliver(f, {}, 'ramen tonight?'), unaddressed('learned-only', { reply_p: .93, style: flat }));
   assert.equal(posts(f.ws).length, 0);
   f.bot.configure({ organic: 'on' });
   assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'anyone tried the new ramen place'), [{ ...unaddressed('chimed-in', { reply_p: .93, style: flat })[0], from: 'dave' }]);
   assert.deepEqual(posts(f.ws), [{ room_id: 'general', body: { text: 'the broth is the point' } }]);
+  assert.equal(prompts.at(-1), `carol: ramen tonight?\ndave: anyone tried the new ramen place\n\n${chime}`);
   const [message, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
   assert.equal(message.text, 'anyone tried the new ramen place');
   assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${f.ws.sent.at(-1).id}`, organic: true, text: 'the broth is the point' });

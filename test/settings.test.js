@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { settings, restore, systemPrompt, guardrails, temperament, roomPrompt, line, cue } from '../src/settings.js';
+import { settings, restore, systemPrompt, guardrails, temperament, roomPrompt, line, cue, chime } from '../src/settings.js';
 const traits = { warmth: .5, playfulness: .25, curiosity: 1, expressiveness: 0 };
 const persona = settings.persona.default();
 const defaults = { persona, paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, cooldown: 15, organic: false, organic_threshold: .9, organic_gap: 30 };
@@ -59,6 +59,12 @@ test('the room goes to the model as one transcript, and its line comes back with
   assert.equal(line('“honestly same”', names), 'honestly same');
   assert.equal(line('ana: you first', names), 'ana: you first');
   assert.equal(line('"   "', names), '');
+});
+test('a chime-in ends the same transcript with a cue to speak up unprompted instead', () => {
+  const lines = [{ name: 'ana', content: 'ramen tonight?' }];
+  assert.equal(roomPrompt(lines), `ana: ramen tonight?\n\n${cue}`);
+  assert.equal(roomPrompt(lines, true), "ana: ramen tonight?\n\nNobody asked you anything: you're speaking up on your own, so make it an aside that fits the flow, not an answer to anyone. Write your next line in the room. Just the text: no name in front, no quotes.");
+  assert.ok(chime.endsWith(cue));
 });
 test('restore migrates the legacy top-level paused and drops the legacy name', () => {
   assert.deepEqual(restore({ name: 'Old Name', paused: true }), { ...defaults, paused: true });
