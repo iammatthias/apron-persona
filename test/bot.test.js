@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { page } from '../src/page.js';
+import { settings, guardrails } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 // A fake Apron connection that records sent frames; `emit` delivers server frames.
@@ -15,9 +16,9 @@ function socket() {
     send(raw) { sent.push(JSON.parse(raw)); },
   };
 }
-function fixture(request) {
+function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
-  const bot = new Bot(env, { load: () => ({}), save: s => saved.push(JSON.stringify(s)) }, { connect: () => ws, request });
+  const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(s)) }, { connect: () => ws, request });
   return { bot, ws, saved };
 }
 test('transcript stays in memory and persists only aggregate weights', async () => {
@@ -120,32 +121,45 @@ test('a post whose newest snapshot is a tombstone is gone from the feed', async 
 test('paused, it ignores messages even when mentioned', async () => {
   let calls = 0;
   const { bot, ws } = connected(async () => { ++calls; });
-  bot.pause(true);
+  bot.configure({ paused: true });
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
   await bot.queue;
   assert.equal(calls, 0); assert.equal(bot.status().paused, true);
 });
-test('a rename persists and is reapplied on the next sign-in', async () => {
-  const { bot, ws, saved } = connected();
-  const renaming = bot.rename('Room Ghost');
-  assert.deepEqual(ws.sent.at(-1).params, { name: 'Room Ghost' });
-  reply(ws, { you: { user_id: 'bot_me', name: 'Room Ghost' } });
-  await renaming;
-  assert.ok(saved.at(-1).includes('Room Ghost'));
-  const before = ws.sent.length;
-  bot.authed({ user_id: 'bot_me', name: 'Persona' });
-  assert.deepEqual(ws.sent.slice(before).find(f => f.method === 'me').params, { name: 'Room Ghost' });
+test('it takes its name from the server and never asks to rename', () => {
+  const { bot, ws } = fixture();
+  assert.equal(bot.name, 'Persona');
+  bot.tick();
+  ws.emit({ method: 'server', params: {} });
+  ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Owner Bot' } } });
+  assert.equal(bot.name, 'Owner Bot');
+  assert.deepEqual(ws.sent.map(f => f.method), ['auth', 'room_join']);
 });
-test('an avatar goes through /avatar and a PUT to its write_url; clearing sets it empty', async () => {
-  const puts = [];
-  const { bot, ws } = connected(async (url, init) => { puts.push([url, init.method, init.headers['Content-Type']]); return new Response(null, { status: 200 }); });
-  const uploading = bot.avatar(new File(['png'], 'me.png', { type: 'image/png' }));
-  assert.deepEqual(ws.sent.at(-1), { method: 'command', id: ws.sent.at(-1).id, params: { room_id: 'general', body: { text: '/avatar', embeds: [{ kind: 'upload', title: 'me.png' }] } } });
-  reply(ws, { embeds: [{ embed_id: 'e1', kind: 'upload', write_url: 'https://apron.test/w/abc' }] });
-  await uploading;
-  assert.deepEqual(puts, [['https://apron.test/w/abc', 'PUT', 'image/png']]);
-  const clearing = bot.avatar(null);
-  assert.deepEqual(ws.sent.at(-1).params, { avatar: '' });
-  reply(ws, { you: { user_id: 'bot_me', avatar: '' } });
-  await clearing;
+test('configure applies nothing unless every key parses', () => {
+  const { bot, saved } = fixture();
+  assert.throws(() => bot.configure({ persona: 'Hello', mood: 'x' }), { message: 'unknown setting mood' });
+  assert.throws(() => bot.configure({ persona: 'Hello', paused: 'maybe' }), { message: 'paused is on or off' });
+  assert.throws(() => bot.configure({ name: 'Ghost' }), { message: 'unknown setting name' });
+  assert.deepEqual(bot.settings, { persona: settings.persona.default(), paused: false });
+  assert.equal(saved.length, 0);
+});
+test('a legacy state.json with top-level name and paused migrates into settings', async () => {
+  const personality = { version: 1, at: 0, cells: {} };
+  const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, name: 'Old Ghost', paused: true }));
+  assert.deepEqual(bot.settings, { persona: settings.persona.default(), paused: true });
+  bot.save();
+  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { persona: settings.persona.default(), paused: true } });
+});
+test('a saved persona persists and becomes the next reply\'s system message', async () => {
+  const bodies = [];
+  const { bot, ws, saved } = connected(async (url, init) => {
+    const body = JSON.parse(init.body); bodies.push(body);
+    return Response.json(body.temperature === 0 ? classified : { choices: [{ message: { content: 'arr' } }] });
+  });
+  bot.configure({ persona: 'You are {name}, a pirate.' });
+  assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, a pirate.');
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
+  await bot.queue;
+  assert.deepEqual(bodies.at(-1).messages[0], { role: 'system', content: `You are Persona, a pirate. Your style scores from 0 to 1 are {"warmth":0.5,"playfulness":0.5,"curiosity":0.5,"expressiveness":0.5}. Higher means warmer, more playful, more curious, more expressive. ${guardrails}` });
+  assert.equal(ws.sent.at(-1).params.body.text, 'arr');
 });

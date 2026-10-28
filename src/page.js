@@ -47,17 +47,8 @@ function flash(f) {
   if (!f) return '';
   return f.error ? `<p class="flash bad">${escape(f.error)}</p>` : `<p class="flash">${escape(f.ok)}</p>`;
 }
-// Only https: and small data:image URLs are shown (§4.8.6).
-function picture(url) {
-  return typeof url === 'string' && /^(https:|data:image\/(png|jpeg|gif|webp);base64,)/.test(url) ? `<img class="avatar" src="${escape(url)}" alt="">` : '';
-}
 function controls(you, paused) {
-  return `<h2>Profile</h2>
-${picture(you?.avatar)}
-<form class="stack" method="post" action="/name"><label>Name<input name="name" value="${escape(you?.name ?? '')}" maxlength="64" required></label><button>Rename</button></form>
-<form class="stack" method="post" action="/avatar" enctype="multipart/form-data"><label>Avatar<input name="avatar" type="file" accept="image/png,image/jpeg,image/gif,image/webp" required></label><button>Upload avatar</button></form>
-<form class="row" method="post" action="/avatar/clear"><button>Clear avatar</button></form>
-<h2>Bot</h2>
+  return `<h2>Bot</h2>
 <form class="row" method="post" action="/pause"><input type="hidden" name="paused" value="${paused ? 'off' : 'on'}"><button class="go">${paused ? 'Resume' : 'Pause'}</button><span>${paused ? 'Not reading or replying.' : 'Reading the room; replies when mentioned.'}</span></form>`;
 }
 // Every field of the server greeting and the bot's user object, as returned.

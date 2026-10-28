@@ -60,23 +60,9 @@ const actions = {
     await bot.remove(room_id, message_id);
     return 'Deleted';
   },
-  async '/name'(form) {
-    const name = String(form.get('name') ?? '').trim();
-    if (!name || name.length > 64) throw Error('a name is 1 to 64 characters');
-    await bot.rename(name);
-    return 'Renamed';
-  },
-  async '/avatar'(form) {
-    const file = form.get('avatar');
-    if (!(file instanceof Blob) || !file.size) throw Error('choose an image');
-    if (!/^image\/(png|jpeg|gif|webp)$/.test(file.type) || file.size > 2097152) throw Error('a PNG, JPEG, GIF or WebP of at most 2 MB');
-    await bot.avatar(file);
-    return 'Avatar uploaded';
-  },
-  async '/avatar/clear'() { await bot.avatar(null); return 'Avatar cleared'; },
   async '/pause'(form) {
-    bot.pause(form.get('paused') === 'on');
-    return bot.paused ? 'Paused: not reading or replying' : 'Resumed';
+    bot.configure({ paused: form.get('paused') });
+    return bot.settings.paused ? 'Paused: not reading or replying' : 'Resumed';
   },
 };
 Bun.serve({
