@@ -36,7 +36,7 @@ test('daily budget prevents an upstream request', async () => {
   await assert.rejects(bot.api({}), /budget/);
   assert.equal(requested, false);
 });
-test('authenticates, greets once, and replies to a mention', async () => {
+test('authenticates silently and replies only to a mention', async () => {
   const kinds = [];
   const { bot, ws } = fixture(async (url, init) => {
     const kind = JSON.parse(init.body).temperature === 0 ? 'classify' : 'reply'; kinds.push(kind);
@@ -46,12 +46,13 @@ test('authenticates, greets once, and replies to a mention', async () => {
   ws.emit({ method: 'server', params: {} });
   assert.deepEqual(ws.sent.at(-1), { method: 'auth', id: 'auth', params: { scheme: 'token', token: 't' } });
   ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
-  assert.deepEqual(ws.sent.slice(1).map(f => f.method), ['room_join', 'message']);
-  assert.equal(bot.joined, 'general');
+  assert.deepEqual(ws.sent.slice(1).map(f => f.method), ['room_join']);
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id: '11', from: { user_id: 'bob' }, body: { text: 'just chatting' } } });
+  await bot.queue;
+  assert.equal(ws.sent.filter(f => f.method === 'message').length, 0);
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
   await bot.queue;
-  assert.deepEqual(kinds, ['classify', 'reply']);
+  assert.deepEqual(kinds, ['classify', 'classify', 'reply']);
   assert.deepEqual(ws.sent.at(-1).params, { room_id: 'general', body: { text: 'hi there' }, reply_to: { message_id: '12' } });
-  bot.authed({ user_id: 'bot_me', name: 'Persona' });
-  assert.equal(ws.sent.filter(f => f.method === 'message' && !f.params.reply_to).length, 1);
+  assert.equal(ws.sent.filter(f => f.method === 'message').length, 1);
 });

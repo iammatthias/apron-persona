@@ -8,13 +8,12 @@ export class Bot {
     const saved = store.load();
     this.state = saved.personality ?? fresh();
     this.budget = saved.budget ?? { day: '', calls: 0 };
-    this.joined = saved.joined ?? '';
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.error = null;
     this.seq = 0; this.ready = false; this.pending = 0; this.queue = Promise.resolve();
   }
   save() {
-    this.store.save({ personality: this.state, budget: this.budget, joined: this.joined });
+    this.store.save({ personality: this.state, budget: this.budget });
     this.dirty = false;
   }
   // Runs every minute: reconnects, pings, expires context, and checkpoints.
@@ -58,12 +57,7 @@ export class Bot {
   authed(you) {
     this.self = you.user_id; this.ready = true; this.error = null;
     if (you.name !== this.env.BOT_NAME) this.send('me', { name: this.env.BOT_NAME });
-    const greet = this.joined !== this.env.ROOMS;
-    for (const room_id of this.rooms) {
-      this.send('room_join', { room_id });
-      if (greet) this.send('message', { room_id, body: { text: `Hello! I'm ${this.env.BOT_NAME}. Mention me or reply to me to chat.` } });
-    }
-    if (greet) { this.joined = this.env.ROOMS; this.save(); }
+    for (const room_id of this.rooms) this.send('room_join', { room_id });
   }
   prune() {
     const now = Date.now();
