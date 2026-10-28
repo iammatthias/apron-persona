@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Log, event, label } from '../src/events.js';
 test('an event keeps only its kind\'s declared fields and rejects unknown kinds and outcomes', () => {
-  assert.deepEqual(event('message', { room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply: .4, text: 'secret' }),
+  assert.deepEqual(event('message', { room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply: .4, body: 'secret' }),
     { kind: 'message', room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply: .4 });
   assert.throws(() => event('chat', {}), { message: 'unknown event chat' });
   assert.throws(() => event('message', { outcome: 'ignored' }), { message: 'unknown outcome ignored' });

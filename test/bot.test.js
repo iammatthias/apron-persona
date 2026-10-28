@@ -4,7 +4,7 @@ import { Bot } from '../src/bot.js';
 import { settings, guardrails } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
-// A fake Apron connection that records sent frames; `emit` delivers server frames.
+// A fake Apron connection that records sent frames and acknowledges each new post; `emit` delivers server frames.
 function socket() {
   const listeners = {}, sent = [];
   return {
@@ -12,7 +12,10 @@ function socket() {
     addEventListener(type, f) { (listeners[type] ??= []).push(f); },
     emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
     close() { this.readyState = 3; listeners.close?.forEach(f => f({ type: 'close', code: 1006, reason: '' })); },
-    send(raw) { sent.push(JSON.parse(raw)); },
+    send(raw) {
+      const frame = JSON.parse(raw); sent.push(frame);
+      if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
+    },
   };
 }
 function fixture(request, load = () => ({})) {
@@ -167,7 +170,7 @@ async function deliver({ bot, ws }, params = {}, text = 'hey @bot_me') {
   const message_id = String(++ids);
   ws.emit({ method: 'message', params: { room_id: 'general', message_id, from: { user_id: 'carol' }, body: { text }, ...params } });
   await bot.queue;
-  return bot.log.list(before).filter(e => e.kind === 'message').map(({ at, kind, ...e }) => ({ ...e, message_id: e.message_id === message_id ? 'this' : e.message_id }));
+  return bot.log.list(before).filter(e => e.kind === 'message').map(({ at, kind, text, ...e }) => ({ ...e, message_id: e.message_id === message_id ? 'this' : e.message_id }));
 }
 const seen = (outcome, extra = {}) => [{ room: 'general', message_id: 'this', from: 'carol', mentioned: true, outcome, ...extra }];
 test('each skipped frame records exactly one message event naming why', async () => {
@@ -184,6 +187,7 @@ test('a frame before sign-in is stale, and a fifth queued frame is busy', async 
   const f = fixture(model());
   f.bot.tick(); f.ws.emit({ method: 'server', params: {} });
   assert.deepEqual(await deliver(f, {}, 'hello'), seen('stale', { mentioned: false }));
+  assert.deepEqual(await deliver(f, { room_id: undefined, from: { user_id: '~private' } }, 'welcome'), [{ message_id: 'this', from: '~private', mentioned: false, outcome: 'other-room' }]);
   let release; const gate = new Promise(r => release = r);
   const g = connected(async (...a) => { await gate; return model()(...a); });
   for (const n of [1, 2, 3, 4, 5]) g.ws.emit({ method: 'message', params: { room_id: 'general', message_id: `q${n}`, from: { user_id: `u${n}` }, body: { text: `hey @bot_me ${n}` } } });
@@ -216,14 +220,31 @@ test('classification and reply failures carry their code', async () => {
   assert.equal(empty.ws.sent.filter(f => f.method === 'message').length, 0);
   assert.deepEqual(await deliver(connected(model({ replyStatus: 503 }))), seen('reply-failed', { learn: .9, reply: .9, detail: 'inference-503' }));
 });
-test('no event carries message text or the model\'s reply', async () => {
-  const canary = 'private-content-canary @bot_me';
+test('only messages that engage the bot keep their text, and a reply records what was posted', async () => {
+  const quiet = 'quiet-canary', engaged = 'engaged-canary @bot_me';
   for (const m of [model({ text: 'model-canary' }), model({ scores: { reply: .1 } }), model({ text: '' }), model({ classify: 'x' })]) {
     const f = connected(m);
-    assert.equal((await deliver(f, {}, canary)).length, 1);
-    const all = JSON.stringify(f.bot.log.list());
-    assert.ok(!all.includes('private-content-canary') && !all.includes('model-canary'), all);
+    await deliver(f, {}, quiet); await deliver(f, { from: { user_id: 'dave' } }, engaged);
+    const messages = f.bot.log.list().filter(e => e.kind === 'message');
+    assert.equal(messages.length, 2);
+    assert.ok(!JSON.stringify(f.bot.log.list()).includes('quiet-canary'));
+    assert.equal(messages[1].text, engaged);
   }
+  const f = connected(model({ text: ' model-canary ' }));
+  await deliver(f, { reply_to: { message_id: 'm1' } }, engaged);
+  const [message, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
+  assert.deepEqual(message, { kind: 'message', room: 'general', message_id: String(ids), reply_to: 'm1', from: 'carol', mentioned: true, text: engaged, outcome: 'replied', learn: .9, reply: .9 });
+  const id = f.ws.sent.at(-1).id;
+  assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${id}`, reply_to: String(ids), text: 'model-canary' });
+  assert.ok(f.bot.own.has(`posted-${id}`));
+});
+test('nothing bound for DATA_DIR carries message or reply text', async () => {
+  const f = connected(model({ text: 'model-canary' }));
+  await deliver(f, {}, 'quiet-canary'); await deliver(f, { from: { user_id: 'dave' } }, 'engaged-canary @bot_me');
+  f.bot.save();
+  assert.equal(f.bot.log.list().filter(e => e.kind === 'posted').length, 1);
+  const disk = [...f.saved, JSON.stringify(f.bot.status())].join('\n');
+  for (const canary of ['quiet-canary', 'engaged-canary', 'model-canary']) assert.ok(!disk.includes(canary), canary);
 });
 test('connection, auth, settings, deletes and errors are recorded', async () => {
   const f = connected();

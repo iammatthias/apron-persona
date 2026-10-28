@@ -97,27 +97,33 @@ export class Bot {
       this.lastFrame = Date.now();
       let frame; try { frame = JSON.parse(event.data); } catch { return; }
       const waiter = frame.id != null && this.waiting.get(frame.id);
+      if (frame.result?.message_id) {
+        this.own.add(frame.result.message_id);
+        while (this.own.size > 64) this.own.delete(this.own.values().next().value);
+      }
       if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
       if (frame.method === 'server') this.server = frame.params ?? {};
       if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
       if (frame.id === 'auth' && frame.error) { this.record('auth-denied'); this.fail('apron-auth-denied'); this.drop('auth-denied'); }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);
-      if (frame.result?.message_id) {
-        this.own.add(frame.result.message_id);
-        while (this.own.size > 64) this.own.delete(this.own.values().next().value);
-      }
       if (frame.method === 'user') {
         if (frame.params?.you) this.you = frame.params.you;
         const u = frame.params?.new ?? frame.params?.you;
         if (u?.roles?.includes('bot')) this.bots.add(u.user_id);
       }
       if (frame.method !== 'message') return;
-      const p = frame.params, seen = { room: p?.room_id, message_id: p?.message_id, from: p?.from?.user_id, mentioned: this.mentioned(p) };
-      const skip = !this.ready ? 'stale' : incoming(p, this.self, this.bots, this.rooms) ?? (this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
+      const p = frame.params, mentioned = this.mentioned(p);
+      // Text is kept, in memory only, just for messages that engage the bot.
+      const seen = { room: p?.room_id, message_id: p?.message_id, reply_to: p?.reply_to?.message_id, from: p?.from?.user_id, mentioned,
+        text: mentioned && typeof p.body?.text === 'string' ? p.body.text.slice(0, 2000) : undefined };
+      const skip = incoming(p, this.self, this.bots, this.rooms) ?? (!this.ready ? 'stale' : this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
       if (skip) return this.record('message', { ...seen, outcome: skip });
       ++this.pending;
       this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
-        .then(result => this.record('message', { ...seen, ...result }), () => this.fail('message-processing-failed'))
+        .then(({ posted, ...result }) => {
+          this.record('message', { ...seen, ...result });
+          if (posted) this.record('posted', { room: p.room_id, reply_to: p.message_id, ...posted });
+        }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
     });
   }
@@ -192,10 +198,11 @@ export class Bot {
     if (typeof reply !== 'string' || !reply.trim()) return { outcome: 'reply-empty', ...scores };
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', ...scores };
     const content = reply.trim().slice(0, 1800);
-    this.send('message', { room_id: p.room_id, body: { text: content }, reply_to: { message_id: p.message_id } });
+    const sent = this.call('message', { room_id: p.room_id, body: { text: content }, reply_to: { message_id: p.message_id } });
     this.lastReply = Date.now();
     this.context.push({ room: p.room_id, at: this.lastReply, role: 'assistant', content });
-    return { outcome: 'replied', ...scores };
+    try { return { outcome: 'replied', ...scores, posted: { message_id: (await sent)?.message_id, text: content } }; }
+    catch (e) { return { outcome: 'reply-failed', ...scores, detail: `post-${e.message}` }; }
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {

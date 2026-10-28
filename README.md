@@ -20,7 +20,7 @@ Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).
 
 Messages stay in memory for five minutes. Only the aggregate personality, the owner's settings, and a daily call count go to `data/state.json`.
 
-The admin portal's Activity tab, `/events.json` and `/events` (a live stream) show the last 300 decisions with room, message and user ids but never message text. They live in memory and reset on restart.
+The admin portal's Activity tab, `/events.json` and `/events` (a live stream) show the last 300 decisions with room, message and user ids. They keep a message's text only when it mentions the bot or replies to it, plus the bot's own replies, in memory only: never on disk, in `status.json` or in logs. They reset on restart.
 
 ## Test
 

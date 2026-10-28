@@ -1,9 +1,10 @@
-// Every kind of event the bot records. Only declared fields are kept, so message text cannot reach the log.
+// Every kind of event the bot records. Only declared fields are kept: a message's text only when it engages the bot.
 export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
-  message: { label: 'Message', fields: ['room', 'message_id', 'from', 'mentioned', 'outcome', 'learn', 'reply', 'detail'] },
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'mentioned', 'text', 'outcome', 'learn', 'reply', 'detail'] },
+  posted: { label: 'Posted a reply', fields: ['room', 'message_id', 'reply_to', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   settings: { label: 'Settings saved', fields: ['keys'] },
   error: { label: 'Error', fields: ['code'] },
