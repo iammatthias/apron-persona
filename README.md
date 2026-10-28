@@ -10,16 +10,9 @@ Put these in `.env`:
 APRON_TOKEN=...          # from /invite-bot; or set it, and the server, on the moderation page
 OPENROUTER_API_KEY=...
 HASH_SECRET=...          # openssl rand -hex 32
-MOD_PASSWORD=...         # moderation page login; unset turns it off
 ```
 
-Then:
-
-```sh
-ff-deploy apron-persona
-add-public-site apron-bot.farfield.systems 8902   # homepage
-add-site apron-bot 8903                            # moderation, private, password-protected
-```
+Then `ff-deploy apron-persona`. The moderation page (port 8903) has no login, so expose it only on the tailnet, at `apron-bot.iam.casa`. Port 8902 serves the status page.
 
 Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).
 
