@@ -65,7 +65,7 @@ test('a stream nobody reads is cut off instead of buffering', async () => {
 });
 test('the dashboard shows the transcript and the last error, and /rows serves rows after since or one post by id', async () => {
   const { bot, admin } = listeners();
-  bot.log.push({ kind: 'message', room: 'general', message_id: '1', from: 'u_a', name: 'ana', mentioned: true, text: '@bot hi', outcome: 'replied', learn_p: .9, reply_p: .9 });
+  bot.log.push({ kind: 'message', room: 'general', message_id: '1', from: 'u_a', name: 'ana', addressed: 'mention', text: '@bot hi', outcome: 'replied', learn_p: .9, reply_p: .9 });
   const posted = bot.log.push({ kind: 'posted', room: 'general', message_id: 'p1', reply_to: '1', text: 'hello <b>' });
   bot.fail('inference-<429>');
   const html = await (await get(admin, '/')).text();

@@ -7,13 +7,13 @@ const now = Date.UTC(2026, 9, 28, 14, 31);
 const status = { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 3 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 }, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } };
 const at = m => now - m * 60000;
 const events = [
-  { at: at(9), kind: 'message', room: 'general', message_id: '1', from: 'u_ben', name: 'ben', mentioned: false, outcome: 'learned-only', learn_p: .91, reply_p: .1, style: [.75, .5, .5, .5] },
-  { at: at(8), kind: 'message', room: 'general', message_id: '2', from: 'u_ana', name: 'ana<i>', mentioned: true, text: '@bot </p><script>x</script>', outcome: 'replied', learn_p: .5, reply_p: .97 },
+  { at: at(9), kind: 'message', room: 'general', message_id: '1', from: 'u_ben', name: 'ben', outcome: 'learned-only', learn_p: .91, reply_p: .1, style: [.75, .5, .5, .5] },
+  { at: at(8), kind: 'message', room: 'general', message_id: '2', from: 'u_ana', name: 'ana<i>', addressed: 'mention', text: '@bot </p><script>x</script>', outcome: 'replied', learn_p: .5, reply_p: .97 },
   { at: at(7), kind: 'posted', room: 'general', message_id: 'p"1', reply_to: '2', text: '<img src=x onerror=alert(1)>' },
-  { at: at(6), kind: 'message', room: 'general', message_id: '3', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot one', outcome: 'declined', learn_p: .5, reply_p: .42 },
-  { at: at(5), kind: 'message', room: 'random', message_id: '4', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot two', outcome: 'budget' },
-  { at: at(4), kind: 'message', room: 'general', message_id: '5', from: 'u_lin', name: 'lin', mentioned: true, text: '@bot three', outcome: 'reply-failed', learn_p: .5, reply_p: .9, detail: 'inference-502' },
-  { at: at(3), kind: 'message', room: 'elsewhere-room', message_id: '6', from: 'u_zed', name: 'zed', mentioned: false, outcome: 'other-room' },
+  { at: at(6), kind: 'message', room: 'general', message_id: '3', from: 'u_lin', name: 'lin', addressed: 'mention', text: '@bot one', outcome: 'declined', learn_p: .5, reply_p: .42 },
+  { at: at(5), kind: 'message', room: 'random', message_id: '4', from: 'u_lin', name: 'lin', addressed: 'mention', text: '@bot two', outcome: 'budget' },
+  { at: at(4), kind: 'message', room: 'general', message_id: '5', from: 'u_lin', name: 'lin', addressed: 'mention', text: '@bot three', outcome: 'reply-failed', learn_p: .5, reply_p: .9, detail: 'inference-502' },
+  { at: at(3), kind: 'message', room: 'elsewhere-room', message_id: '6', from: 'u_zed', name: 'zed', outcome: 'other-room' },
 ];
 const ctx = {
   name: 'P<i>', status, now, events, rooms: ['general', 'random'], room: 'general', view: 'transcript', edit: false, flash: null, lastError: null, limit: '40',

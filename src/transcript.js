@@ -1,7 +1,7 @@
 import { margins, breaks } from './events.js';
 const who = e => e.name ?? e.from ?? 'someone';
-// A mention in a watched room that got no reply.
-const unanswered = e => !!e.mentioned && margins[e.outcome].place === 'room' && !margins[e.outcome].answered;
+// A mention or reply in a watched room that got no answer.
+const unanswered = e => !!e.addressed && margins[e.outcome].place === 'room' && !margins[e.outcome].answered;
 // Each watched room's transcript as the bot saw it, oldest first, plus the messages it ignored elsewhere.
 // A row is a message (text only when it engaged the bot), one of the bot's posts, or a break across every room.
 export function transcript(events, rooms) {
@@ -19,7 +19,7 @@ export function transcript(events, rooms) {
       target.rows.push(row);
       if (row.unanswered) ++target.unanswered;
     } else if (e.kind === 'posted') {
-      const to = senders.get(e.reply_to), row = { kind: 'post', at: e.at, room: e.room, message_id: e.message_id, text: e.text, deleted: false, margin: to ? `my reply to ${to}.` : 'my reply.' };
+      const to = senders.get(e.reply_to), row = { kind: 'post', at: e.at, room: e.room, message_id: e.message_id, text: e.text, deleted: false, margin: e.organic ? 'something I chimed in with.' : to ? `my reply to ${to}.` : 'my reply.' };
       posts.set(e.message_id, row);
       room(e.room)?.rows.push(row);
     } else if (e.kind === 'deleted') {

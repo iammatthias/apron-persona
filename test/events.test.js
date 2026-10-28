@@ -2,8 +2,8 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Log, event } from '../src/events.js';
 test('an event keeps only its kind\'s declared fields and rejects unknown kinds and outcomes', () => {
-  assert.deepEqual(event('message', { room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply_p: .4, body: 'secret' }),
-    { kind: 'message', room: 'general', message_id: '1', from: 'alice', mentioned: true, outcome: 'declined', reply_p: .4 });
+  assert.deepEqual(event('message', { room: 'general', message_id: '1', from: 'alice', addressed: 'mention', outcome: 'declined', reply_p: .4, body: 'secret' }),
+    { kind: 'message', room: 'general', message_id: '1', from: 'alice', addressed: 'mention', outcome: 'declined', reply_p: .4 });
   assert.throws(() => event('chat', {}), { message: 'unknown event chat' });
   assert.throws(() => event('message', { outcome: 'ignored' }), { message: 'unknown outcome ignored' });
 });
@@ -27,7 +27,7 @@ test('subscribers get each new event until they unsubscribe', () => {
 });
 test('every stored string is capped, so a huge frame cannot bloat the log', () => {
   const big = 'x'.repeat(1048576);
-  const e = event('message', { room: big, message_id: big, reply_to: big, from: big, name: big, mentioned: true, text: big, outcome: 'declined', detail: big });
+  const e = event('message', { room: big, message_id: big, reply_to: big, from: big, name: big, addressed: 'mention', text: big, outcome: 'declined', detail: big });
   assert.deepEqual([e.room.length, e.message_id.length, e.reply_to.length, e.from.length, e.name.length, e.text.length, e.detail.length], [200, 200, 200, 200, 200, 2000, 200]);
   assert.equal(event('disconnected', { reason: big }).reason.length, 200);
   assert.equal(event('posted', { room: 'general', message_id: '9', text: big }).text.length, 2000);

@@ -1,8 +1,8 @@
-import { classify, decision, fresh, decay, learn, persona, fingerprint, incoming } from './core.js';
+import { classify, decision, fresh, decay, learn, persona, fingerprint, incoming, addressing, trigger } from './core.js';
 import { settings, restore, systemPrompt } from './settings.js';
 import { Log, event } from './events.js';
 const TTL = 300000;
-// One live Apron connection: learns community style and replies when addressed.
+// One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
   constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log() } = {}) {
     this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log;
@@ -12,7 +12,7 @@ export class Bot {
     this.budget = saved.budget ?? { day: '', calls: 0 };
     this.settings = restore(saved);
     this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.error = null; this.lastError = null;
+    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve();
   }
   save() {
@@ -78,16 +78,19 @@ export class Bot {
       parsed[k] = settings[k].parse(v);
     }
     if (!Object.keys(parsed).length) throw Error('nothing to save');
+    // One form saves every trigger at once, so only the values that moved are recorded.
+    const keys = Object.keys(parsed).filter(k => parsed[k] !== this.settings[k]);
     this.settings = { ...this.settings, ...parsed }; this.save();
-    this.record('settings', { keys: Object.keys(parsed), paused: parsed.paused });
+    if (keys.length) this.record('settings', { keys, ...Object.fromEntries(keys.map(k => [k, parsed[k]])) });
   }
   async remove(room_id, message_id) {
     await this.call('message', { room_id, message_id, deleted: true });
     this.record('deleted', { room: room_id, message_id });
   }
-  mentioned(p) {
+  addressed(p) {
     const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
-    return !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`)) || this.own.has(p?.reply_to?.message_id);
+    const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`));
+    return addressing(this.settings, mention, this.own.has(p?.reply_to?.message_id));
   }
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
@@ -115,18 +118,18 @@ export class Bot {
         if (u?.roles?.includes('bot')) this.bots.add(u.user_id);
       }
       if (frame.method !== 'message') return;
-      const p = frame.params, mentioned = this.mentioned(p);
-      // Text is kept, in memory only, just for messages that engage the bot.
+      const p = frame.params, addressed = this.addressed(p);
       const seen = { room: p?.room_id, message_id: p?.message_id, reply_to: p?.reply_to?.message_id, from: p?.from?.user_id,
-        name: typeof p?.from?.name === 'string' ? p.from.name.slice(0, 64) : undefined, mentioned,
-        text: mentioned && typeof p.body?.text === 'string' ? p.body.text.slice(0, 2000) : undefined };
+        name: typeof p?.from?.name === 'string' ? p.from.name.slice(0, 64) : undefined, addressed };
+      // Text is kept, in memory only, just for messages that engage the bot: addressed, or ones it set out to chime in on.
+      const text = engaged => engaged && typeof p.body?.text === 'string' ? p.body.text.slice(0, 2000) : undefined;
       const skip = incoming(p, this.self, this.bots, this.rooms) ?? (!this.ready ? 'stale' : this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
-      if (skip) return this.record('message', { ...seen, outcome: skip });
+      if (skip) return this.record('message', { ...seen, text: text(addressed), outcome: skip });
       ++this.pending;
       this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
-        .then(({ posted, ...result }) => {
-          this.record('message', { ...seen, ...result });
-          if (posted) this.record('posted', { room: p.room_id, reply_to: p.message_id, ...posted });
+        .then(({ posted, respond, ...result }) => {
+          this.record('message', { ...seen, text: text(addressed || respond), ...result });
+          if (posted) this.record('posted', { room: p.room_id, ...posted });
         }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
     });
@@ -170,12 +173,14 @@ export class Bot {
     const hash = await fingerprint(this.env.HASH_SECRET, text);
     if (this.seen.has(hash)) return { outcome: 'duplicate' };
     this.seen.set(hash, now);
-    const mentioned = this.mentioned(p);
+    const addressed = this.addressed(p);
     this.context.push({ room: p.room_id, at: now, role: 'user', content: text });
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
     // One learning contribution per participant per five minutes.
     const eligible = !this.people.has(participant);
-    if (!eligible && !mentioned) return { outcome: 'rate-limited' };
+    const clocks = { now, lastReply: this.lastReply, lastOrganic: this.organic.get(p.room_id) ?? 0 };
+    const early = trigger(this.settings, { addressed, eligible }, clocks);
+    if (early) return { outcome: early.outcome };
     const failed = (outcome, e, scores) => e.message === 'budget' ? { outcome: 'budget', ...scores } : { outcome, detail: e.name === 'TimeoutError' ? 'timeout' : e.message, ...scores };
     let result;
     try { result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) })); }
@@ -188,9 +193,9 @@ export class Bot {
     }
     // style is present only when the message was learned from.
     const scores = { learn_p: result.learn, reply_p: result.reply, style: learned ? result.vector : undefined };
-    if (!mentioned) return { outcome: 'learned-only', ...scores };
-    if (result.reply < .7) return { outcome: 'declined', ...scores };
-    if (now - this.lastReply < 15000) return { outcome: 'cooldown', ...scores };
+    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply }, { ...clocks, lastReply: this.lastReply });
+    if (!respond) return { ...verdict, ...scores };
+    const organic = respond === 'organic';
     this.prune();
     let output;
     try {
@@ -199,16 +204,18 @@ export class Bot {
         messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
           ...this.context.filter(x => x.room === p.room_id).slice(-8).map(({ role, content }) => ({ role, content }))],
       });
-    } catch (e) { return failed('reply-failed', e, scores); }
+    } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
     const reply = output?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) return { outcome: 'reply-empty', ...scores };
-    if (!this.ready || connection !== this.ws) return { outcome: 'stale', ...scores };
+    if (typeof reply !== 'string' || !reply.trim()) return { outcome: 'reply-empty', respond, ...scores };
+    if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const content = reply.trim().slice(0, 1800);
-    const sent = this.call('message', { room_id: p.room_id, body: { text: content }, reply_to: { message_id: p.message_id } });
+    // A chime-in is a plain message, not a reply to the one that prompted it.
+    const sent = this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } });
     this.lastReply = Date.now();
+    if (organic) this.organic.set(p.room_id, this.lastReply);
     this.context.push({ room: p.room_id, at: this.lastReply, role: 'assistant', content });
-    try { return { outcome: 'replied', ...scores, posted: { message_id: (await sent)?.message_id, text: content } }; }
-    catch (e) { return { outcome: 'reply-failed', ...scores, detail: `post-${e.message}` }; }
+    try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
+    catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {

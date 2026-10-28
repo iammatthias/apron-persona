@@ -4,10 +4,12 @@ export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'mentioned', 'text', 'outcome', 'learn_p', 'reply_p', 'style', 'detail'] },
-  posted: { label: 'Posted a reply', fields: ['room', 'message_id', 'reply_to', 'text'] },
+  // addressed is 'mention' or 'reply'. need, ago and wait are the bar, the time since the last chime-in, and the cooldown that decided it.
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'style', 'need', 'ago', 'wait', 'detail'] },
+  posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
-  settings: { label: 'Settings saved', fields: ['keys', 'paused'] },
+  // The new value of each changed setting except the persona, whose text stays out of the log.
+  settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'cooldown', 'organic', 'organic_threshold', 'organic_gap'] },
   error: { label: 'Error', fields: ['code'] },
 };
 // What became of one incoming message.
@@ -22,16 +24,21 @@ export const outcomes = {
   stale: 'Dropped: the connection changed first',
   duplicate: 'Ignored: repeats a recent message',
   'rate-limited': 'Ignored: sender already counted in the last five minutes',
-  'learned-only': 'Classified; not mentioned',
-  declined: 'Mentioned; reply probability below 0.7',
-  cooldown: 'Mentioned; replied under 15 seconds ago',
+  'trigger-off': 'Addressed, but that trigger is off',
+  'learned-only': 'Classified; not addressed',
+  declined: 'Addressed; reply probability below the bar',
+  'held-back': 'Not addressed; below the chime-in bar',
+  'quiet-gap': 'Not addressed; chimed in here too recently',
+  cooldown: 'Posted too recently',
   budget: 'Skipped: daily calls used up',
   'classify-failed': 'Classification failed',
   'reply-empty': 'The model returned no text',
   'reply-failed': 'Reply request failed',
   replied: 'Replied',
+  'chimed-in': 'Chimed in unprompted',
 };
 const p2 = x => Number(x).toFixed(2);
+const plural = (n, one) => `${n} ${n === 1 ? one : `${one}s`}`;
 const who = e => e.name ?? e.from ?? 'someone';
 // The axis a learned style vector leans furthest along, as words.
 function lean(style) {
@@ -52,21 +59,38 @@ export const margins = {
   stale: { place: 'room', say: () => 'the connection changed before I got to it.' },
   duplicate: { place: 'room', say: () => "I'd seen this exact text already." },
   'rate-limited': { place: 'room', say: e => `already learned from ${who(e)} in the last 5 min.` },
+  'trigger-off': { place: 'room', say: e => `you've turned off answering ${e.addressed === 'reply' ? 'replies to me' : 'mentions'}, so I let it be.` },
   'learned-only': { place: 'room', say: e => e.style ? `learned. ${lean(e.style)}. (${p2(e.learn_p)})` : `didn't learn. learn chance ${p2(e.learn_p)}, I need 0.80.` },
-  declined: { place: 'room', tone: 'warn', say: e => `didn't answer. reply chance ${p2(e.reply_p)}, I need 0.70.` },
-  cooldown: { place: 'room', tone: 'warn', say: () => "didn't answer. I'd replied under 15 seconds before." },
+  declined: { place: 'room', tone: 'warn', say: e => `didn't answer. reply chance ${p2(e.reply_p)}, I need ${p2(e.need)}.` },
+  'held-back': { place: 'room', say: e => `could have chimed in (${p2(e.reply_p)}), but I hold out for ${p2(e.need)}.` },
+  'quiet-gap': { place: 'room', say: e => `would have chimed in, but I spoke up here ${e.ago < 60000 ? 'under a minute' : `${Math.round(e.ago / 60000)} min`} ago.` },
+  cooldown: { place: 'room', tone: 'warn', say: e => `${e.addressed ? "didn't answer" : 'would have chimed in'}. I'd posted under ${plural(e.wait, 'second')} before.` },
   budget: { place: 'room', tone: 'warn', say: () => "I'm out of calls for today, so I let it pass." },
   'classify-failed': { place: 'room', tone: 'bad', say: e => `I couldn't size it up. the model call failed (${e.detail}).` },
   'reply-empty': { place: 'room', tone: 'bad', say: () => 'the model returned nothing, so I stayed quiet.' },
   'reply-failed': { place: 'room', tone: 'bad', say: e => `I tried, but the model call failed (${e.detail}).` },
   replied: { place: 'room', tone: 'ok', answered: true, say: e => `answered. I was ${p2(e.reply_p)} sure a reply fit.` },
+  'chimed-in': { place: 'room', tone: 'ok', answered: true, say: e => `chimed in unprompted. I was ${p2(e.reply_p)} sure it'd be welcome.` },
+};
+const toggled = (on, off) => v => v ? on : off;
+// What each changed setting reads as in the transcript break.
+const changes = {
+  persona: () => 'you rewrote who I am',
+  paused: toggled('you paused me', 'you resumed me'),
+  reply_mentions: toggled('you let me answer mentions', 'you stopped me answering mentions'),
+  reply_replies: toggled('you let me answer replies to me', 'you stopped me answering replies to me'),
+  reply_threshold: v => `you set my reply bar to ${p2(v)}`,
+  cooldown: v => `you set my cooldown to ${plural(v, 'second')}`,
+  organic: toggled('you let me chime in on my own', 'you stopped me chiming in'),
+  organic_threshold: v => `you set my chime-in bar to ${p2(v)}`,
+  organic_gap: v => `you set my chime-in gap to ${v} min`,
 };
 // The dashed break each connection or owner event draws across every room's transcript.
 export const breaks = {
   connected: e => `connected to ${e.host} as ${e.user_id}`,
   disconnected: e => `lost the server (${e.reason})`,
   'auth-denied': () => 'the server refused my token',
-  settings: e => [e.keys.includes('persona') && 'you rewrote who I am', e.paused === true && 'you paused me', e.paused === false && 'you resumed me'].filter(Boolean).join(', '),
+  settings: e => e.keys.map(k => changes[k](e[k])).join(', '),
   error: e => `error: ${e.code}`,
 };
 export function event(kind, fields = {}) {
