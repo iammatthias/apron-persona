@@ -89,3 +89,21 @@ test('pages refuse to be framed and are never sniffed', async () => {
     assert.equal(res.headers.get('X-Content-Type-Options'), 'nosniff');
   }
 });
+test('one save of how I respond round-trips every trigger, switching boxes off as well as on', async () => {
+  const { bot, admin } = listeners();
+  const save = fields => get(admin, '/settings', { method: 'POST', body: new URLSearchParams(fields), headers: { 'Sec-Fetch-Site': 'same-origin' } });
+  const form = (organic, mentions) => [['view', 'who'], ['room', 'general'], ...(mentions ? [['reply_mentions', 'on']] : []), ['reply_mentions', 'off'], ['reply_replies', 'on'], ['reply_replies', 'off'],
+    ['reply_threshold', '0.80'], ['cooldown', '30'], ...(organic ? [['organic', 'on']] : []), ['organic', 'off'], ['organic_threshold', '0.95'], ['organic_gap', '60']];
+  assert.equal((await save(form(true, false))).headers.get('Location'), '/?view=who&room=general&ok=Saved');
+  assert.deepEqual(bot.settings, { ...bot.settings, reply_mentions: false, reply_replies: true, reply_threshold: .8, cooldown: 30, organic: true, organic_threshold: .95, organic_gap: 60 });
+  const html = await (await get(admin, '/?view=who')).text();
+  assert.ok(html.includes('<input type="checkbox" name="reply_mentions" value="on"><input type="hidden"') && html.includes('<input type="checkbox" name="organic" value="on" checked>'));
+  assert.ok(html.includes('name="reply_threshold" min="0.5" max="0.99" step="0.05" value="0.80"') && html.includes('name="organic_gap" min="5" max="1440" step="1" value="60"'));
+  assert.ok(html.includes('you stopped me answering mentions, you set my reply bar to 0.80, you set my cooldown to 30 seconds, you let me chime in on my own, you set my chime-in bar to 0.95, you set my chime-in gap to 60 min'));
+  await save(form(false, true));
+  assert.equal(bot.settings.organic, false); assert.equal(bot.settings.reply_mentions, true);
+  assert.ok((await (await get(admin, '/?view=who')).text()).includes('you let me answer mentions, you stopped me chiming in'));
+  const bad = await save([['view', 'who'], ['room', 'general'], ['organic_gap', '2'], ['organic', 'off']]);
+  assert.equal(bad.headers.get('Location'), '/?view=who&room=general&error=the%20chime-in%20gap%20in%20minutes%20is%20a%20whole%20number%20from%205%20to%201440');
+  assert.equal(bot.settings.organic_gap, 60);
+});

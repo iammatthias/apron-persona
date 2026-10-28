@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { page } from '../src/page.js';
 import { dashboard } from '../src/dashboard.js';
-import { guardrails } from '../src/settings.js';
+import { guardrails, restore } from '../src/settings.js';
 const now = Date.UTC(2026, 9, 28, 14, 31);
 const status = { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 3 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 }, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } };
 const at = m => now - m * 60000;
@@ -17,7 +17,7 @@ const events = [
 ];
 const ctx = {
   name: 'P<i>', status, now, events, rooms: ['general', 'random'], room: 'general', view: 'transcript', edit: false, flash: null, lastError: null, limit: '40',
-  settings: { persona: 'canary-persona </textarea><script>x</script> {name}', paused: false },
+  settings: restore({ settings: { persona: 'canary-persona </textarea><script>x</script> {name}' } }),
   details: { url: 'wss://h/', since: at(14), latency: 45, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', name: 'P', roles: ['bot'], avatar: 'https://h/a.png' } },
   posts: [{ room_id: 'general', message_id: '9', log_id: String(at(7)), body: { text: '<script>said</script>' } }],
 };
@@ -85,4 +85,19 @@ test('the public page carries no transcript, persona or admin content', () => {
   const html = page('P', { ...status, paused: true });
   assert.ok(html.includes('paused · h · bot_x · a/9 · 3 calls today'));
   for (const s of ['canary-persona', guardrails, '<form', '<nav', 'who I am', 'token', 'answered', 'class="chat"', '<script']) assert.ok(!html.includes(s), s);
+});
+test('how I respond shows each trigger as saved, and the header names chiming in when it is on', () => {
+  const html = dashboard({ ...ctx, view: 'who' });
+  assert.ok(html.includes('<section id="respond"><h2>how I respond</h2><div class="card"><form method="post" action="/settings"><input type="hidden" name="view" value="who"><input type="hidden" name="room" value="general">'));
+  assert.ok(html.includes('<label class="tick"><input type="checkbox" name="reply_mentions" value="on" checked><input type="hidden" name="reply_mentions" value="off">answer when mentioned</label>'));
+  assert.ok(html.includes('<label>reply bar<input type="number" name="reply_threshold" min="0.5" max="0.99" step="0.05" value="0.70" required></label><label>cooldown, seconds<input type="number" name="cooldown" min="0" max="3600" step="1" value="15" required></label>'));
+  assert.ok(html.includes('<label class="tick"><input type="checkbox" name="organic" value="on"><input type="hidden" name="organic" value="off">chime in unprompted</label>'));
+  assert.ok(html.includes('value="0.90" required></label><label>gap per room, min<input type="number" name="organic_gap" min="5" max="1440" step="1" value="30" required></label>'));
+  assert.ok(html.indexOf('id="who"') < html.indexOf('id="respond"') && html.indexOf('id="respond"') < html.indexOf('id="today"'));
+  assert.ok(html.includes("<p>I'm listening in #general and #random on h. 3 of my 40 calls are spent today.</p>"));
+  const loose = dashboard({ ...ctx, settings: { ...ctx.settings, reply_replies: false, organic: true, organic_threshold: .95 } });
+  assert.ok(loose.includes('<input type="checkbox" name="reply_replies" value="on"><input type="hidden" name="reply_replies" value="off">'));
+  assert.ok(loose.includes('<input type="checkbox" name="organic" value="on" checked>') && loose.includes('name="organic_threshold" min="0.5" max="0.99" step="0.05" value="0.95"'));
+  assert.ok(loose.includes("<p>I'm listening in #general and #random on h, and I chime in unprompted now and then. 3 of my 40 calls are spent today.</p>"));
+  assert.ok(dashboard({ ...ctx, status: { ...status, paused: true }, settings: { ...ctx.settings, organic: true } }).includes("<p>I'm paused, so I'm not reading #general and #random on h. 3"));
 });

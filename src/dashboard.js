@@ -69,6 +69,10 @@ label{display:block;font-size:12px;color:var(--muted)}
 .said form{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted);margin-top:2px}
 .said details{margin-top:0}.said summary{padding:6px 0;border-top:1px solid var(--line)}
 .who{display:flex;align-items:center;gap:10px}.who img{width:28px;height:28px;border-radius:50%;flex:none}
+.tick{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:13px;margin:0 0 8px;cursor:pointer}.tick input{width:auto;margin:0;accent-color:var(--fg)}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.sub{border-top:1px solid var(--line);padding-top:10px}.sub .small{margin:-4px 0 10px}
+.sub:has([name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
 dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:11px;margin:8px 0 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:899px){
  .wrap{grid-template-columns:minmax(0,1fr);gap:0}
@@ -78,7 +82,7 @@ dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:
  .views{display:flex;gap:16px;max-width:1180px;margin:0 auto;padding:0 16px;font-size:13px}
  .views a{text-decoration:none;color:var(--muted);padding:6px 0;border-bottom:2px solid transparent;margin-bottom:-1px}
  .views a[aria-current]{color:var(--fg);border-color:var(--fg)}
- .v-transcript aside,.v-who main,.v-where main,.v-who #where,.v-where #who,.v-where #today,.v-where #said{display:none}
+ .v-transcript aside,.v-who main,.v-where main,.v-who #where,.v-where #who,.v-where #respond,.v-where #today,.v-where #said{display:none}
  .m{grid-template-columns:minmax(0,1fr);gap:2px}
  .note{margin-left:54px;border-left:0;padding-left:0}
  .note::before{content:"↳ "}
@@ -114,11 +118,11 @@ export const roomOf = (rooms, room) => room === 'elsewhere' || rooms.includes(ro
 export const viewOf = view => views.includes(view) ? view : 'transcript';
 const toggle = ctx => post(ctx, '/settings', `<input type="hidden" name="paused" value="${ctx.status.paused ? 'off' : 'on'}">
 <button class="switch ${ctx.status.paused ? 'off' : 'on'}"><span><b>${ctx.status.paused ? 'Paused' : 'Listening'}</b> <small>${ctx.status.paused ? 'tap to resume' : 'tap to stop'}</small></span><i></i></button>`);
-function sentence({ status, rooms, details, limit, calls }) {
+function sentence({ status, settings, rooms, details, limit, calls }) {
   const where = list(rooms.map(r => `#${r}`)), host = status.server?.host ?? (() => { try { return new URL(details.url).host; } catch { return details.url; } })();
   const spent = Number(limit) ? ` ${calls} of my ${limit} calls are spent today.` : ' I have no model calls to spend today.';
   if (!status.connected) return (status.error ? `I can't reach ${host} (${status.error}).` : `I'm connecting to ${host}.`) + spent;
-  return (status.paused ? `I'm paused, so I'm not reading ${where} on ${host}.` : `I'm listening in ${where} on ${host}.`) + spent;
+  return (status.paused ? `I'm paused, so I'm not reading ${where} on ${host}.` : `I'm listening in ${where} on ${host}${settings.organic ? ', and I chime in unprompted now and then' : ''}.`) + spent;
 }
 // The private dashboard. ctx is { name, status, settings, limit, details, lastError, events, posts, rooms, room, view, edit, flash, now }.
 export function dashboard(ctx) {
@@ -139,7 +143,7 @@ ${flash}<div class="wrap">
 <main><nav class="rooms">${tabs}</nav>
 <div class="chat" data-room="${escape(ctx.room)}" data-since="${ctx.events.at(-1)?.at ?? 0}">${shown.map(r => row(r, ctx)).join('') || '<p class="empty">Nothing here since I started.</p>'}</div>
 <p class="now">times in UTC · <a href="/?room=${encodeURIComponent(ctx.room)}">refresh</a></p></main>
-<aside>${me(c)}${budget(c)}${said(c)}${home(c)}</aside>
+<aside>${me(c)}${triggers(c)}${budget(c)}${said(c)}${home(c)}</aside>
 </div>${live}`, { style: css, cls: ` class="v-${ctx.view}"` });
 }
 function drift(personality) {
@@ -161,6 +165,19 @@ ${persona}
 <p class="lean">${drift(status.personality)}</p>
 <details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div></details>
 </div></section>`;
+}
+// An unchecked box sends nothing, so a hidden "off" follows each one; the route reads the first value.
+const check = (s, k, label) => `<label class="tick"><input type="checkbox" name="${k}" value="on"${s[k] ? ' checked' : ''}><input type="hidden" name="${k}" value="off">${label}</label>`;
+const number = (s, k, label, min, max, step) => `<label>${label}<input type="number" name="${k}" min="${min}" max="${max}" step="${step}" value="${step < 1 ? s[k].toFixed(2) : s[k]}" required></label>`;
+function triggers(ctx) {
+  const s = ctx.settings;
+  return `<section id="respond"><h2>how I respond</h2><div class="card">${post(ctx, '/settings', `${check(s, 'reply_mentions', 'answer when mentioned')}
+${check(s, 'reply_replies', 'answer replies to my messages')}
+<div class="pair">${number(s, 'reply_threshold', 'reply bar', 0.5, 0.99, 0.05)}${number(s, 'cooldown', 'cooldown, seconds', 0, 3600, 1)}</div>
+<div class="sub">${check(s, 'organic', 'chime in unprompted')}
+<div class="pair">${number(s, 'organic_threshold', 'chime-in bar', 0.5, 0.99, 0.05)}${number(s, 'organic_gap', 'gap per room, min', 5, 1440, 1)}</div>
+<p class="small">only on messages I already read to learn from, and once per room per gap.</p></div>
+<div class="bar"><button class="save">save</button></div>`)}</div></section>`;
 }
 // At most 100 cells; past that each cell stands for several calls.
 function budget({ events, limit, calls, now }) {
