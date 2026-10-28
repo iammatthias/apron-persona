@@ -10,6 +10,7 @@ Put these in `.env`:
 APRON_TOKEN=...          # from /invite-bot in Apron
 OPENROUTER_API_KEY=...
 HASH_SECRET=...          # openssl rand -hex 32
+MOD_PASSWORD=...         # moderation page login; unset turns it off
 ```
 
 Then:
@@ -17,7 +18,7 @@ Then:
 ```sh
 ff-deploy apron-persona
 add-public-site apron-bot.farfield.systems 8902   # homepage
-add-site apron-bot 8903                            # moderation, tailnet only
+add-site apron-bot 8903                            # moderation, private, password-protected
 ```
 
 Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).

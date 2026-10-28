@@ -1,6 +1,7 @@
 import { renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { Bot } from './bot.js';
 import { page } from './page.js';
+import { timingSafeEqual, createHash } from 'node:crypto';
 const defaults = {
   APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona',
   DECISION_MODEL: 'openrouter/free', CHAT_MODEL: 'openrouter/free', DAILY_CALLS: '40', HALF_LIFE_DAYS: '30',
@@ -38,10 +39,20 @@ Bun.serve({
     return new Response('Not found', { status: 404 });
   },
 });
-// Moderation: bind only behind a private site. Deletes require a same-origin form post.
-Bun.serve({
+// Moderation: bind only behind a private site, behind Basic auth with MOD_PASSWORD
+// (any user name). Without a password it does not start. Deletes also require a
+// same-origin form post.
+const digest = s => createHash('sha256').update(s).digest();
+const authorized = req => {
+  const [scheme, value] = (req.headers.get('Authorization') ?? '').split(' ');
+  let password = '';
+  try { if (scheme === 'Basic') password = atob(value).split(':').slice(1).join(':'); } catch {}
+  return timingSafeEqual(digest(password), digest(env.MOD_PASSWORD));
+};
+if (env.MOD_PASSWORD) Bun.serve({
   port: +env.MOD_PORT,
   async fetch(req) {
+    if (!authorized(req)) return new Response('Unauthorized', { status: 401, headers: { 'WWW-Authenticate': 'Basic realm="moderation"' } });
     const path = new URL(req.url).pathname;
     if (req.method === 'GET' && path === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
