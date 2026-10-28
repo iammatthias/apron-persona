@@ -79,7 +79,7 @@ export class Bot {
     }
     if (!Object.keys(parsed).length) throw Error('nothing to save');
     this.settings = { ...this.settings, ...parsed }; this.save();
-    this.record('settings', { keys: Object.keys(parsed) });
+    this.record('settings', { keys: Object.keys(parsed), paused: parsed.paused });
   }
   async remove(room_id, message_id) {
     await this.call('message', { room_id, message_id, deleted: true });

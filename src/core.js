@@ -1,4 +1,6 @@
 export const axes = ['warmth', 'playfulness', 'curiosity', 'expressiveness'];
+// How each axis reads when it rises or falls, in the bot's words.
+export const leanings = { warmth: ['warmer', 'cooler'], playfulness: ['more playful', 'more serious'], curiosity: ['more curious', 'more matter-of-fact'], expressiveness: ['more expressive', 'terser'] };
 const levels = { low: 0, reserved: .25, balanced: .5, elevated: .75, high: 1 };
 const descriptions = [
   'social warmth, from reserved to affectionate',

@@ -273,7 +273,7 @@ test('connection, auth, settings, deletes and errors are recorded', async () => 
   g.tick(); g.tick();
   assert.deepEqual([...f.bot.log.list(), ...g.log.list()].map(({ at, ...e }) => e), [
     { kind: 'connected', host: 'apron.test', user_id: 'bot_me' },
-    { kind: 'settings', keys: ['paused'] },
+    { kind: 'settings', keys: ['paused'], paused: true },
     { kind: 'deleted', room: 'general', message_id: '4' },
     { kind: 'disconnected', reason: 'close-1006' },
     { kind: 'auth-denied' },

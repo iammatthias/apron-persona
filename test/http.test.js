@@ -29,7 +29,7 @@ test('events are served only on the admin listener, filtered by since', async ()
   bot.configure({ paused: true }); bot.configure({ paused: false });
   const [first, second] = bot.log.list();
   assert.deepEqual(await (await get(admin, '/events.json')).json(), [first, second]);
-  assert.deepEqual(await (await get(admin, `/events.json?since=${first.at}`)).json(), [{ at: second.at, kind: 'settings', keys: ['paused'] }]);
+  assert.deepEqual(await (await get(admin, `/events.json?since=${first.at}`)).json(), [{ at: second.at, kind: 'settings', keys: ['paused'], paused: false }]);
   for (const path of ['/events.json', '/events']) assert.equal((await get(site, path)).status, 404);
 });
 test('the event stream pings, sends new events, and unsubscribes on abort or cancel', async () => {
