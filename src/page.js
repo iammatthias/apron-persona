@@ -93,7 +93,7 @@ function persona({ name, status, settings }) {
 ${card('Editor', `<p class="note">Who the bot is. {name} becomes its server name, now ${escape(name)}.</p>
 ${post('persona', '/settings', `<label>Persona<textarea name="persona" maxlength="4000" required>${escape(settings.persona)}</textarea></label>
 <div class="bar"><button class="primary">Save</button><span>${settings.persona.length} of 4000 characters saved</span></div>`)}
-<hr>${post('persona', '/persona/reset', '<div class="bar"><button>Reset to default</button><span>Restores the original persona.</span></div>')}`)}
+<hr>${post('persona', '/persona/reset', '<div class="bar"><button>Reset to default</button><span>Restores the original.</span></div>')}`)}
 ${card('What the model gets', `<p class="note">The full system message, sent before the recent conversation.</p>
 <div class="prompt"><p><small>persona</small>${identity}</p><p><small>learned style · updates as it learns</small>${style}</p><p class="fixed"><small>guardrails · fixed, not editable</small>${rules}</p></div>`)}
 </div>`;
