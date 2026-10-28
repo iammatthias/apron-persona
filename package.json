@@ -1,5 +1,4 @@
 {
   "name": "apron-persona", "version": "0.1.0", "private": true, "type": "module",
-  "scripts": { "dev": "wrangler dev", "deploy": "wrangler deploy", "test": "bun test", "build": "wrangler deploy --dry-run --outdir dist" },
-  "devDependencies": { "wrangler": "^4.0.0" }
+  "scripts": { "start": "bun src/index.js", "test": "bun test" }
 }

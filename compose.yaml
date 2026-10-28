@@ -1,0 +1,10 @@
+# Runs on the farfield homelab; deploy with `ff-deploy apron-persona`.
+# Secrets live in .env next to this file on the box, never in git.
+name: apron-persona
+services:
+  bot:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - ./data:/data

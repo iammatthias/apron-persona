@@ -1,88 +1,66 @@
 # Apron Persona
 
-A small, dependency-free Cloudflare Worker agent: OpenRouter's free router classifies human chat and writes replies; a single Durable Object polls Apron; Workers KV stores the aggregate four-dimensional personality.
+A small, dependency-free Bun bot for Apron: OpenRouter's free router classifies human chat and writes replies; one live WebSocket listens to the configured rooms; a JSON file stores the aggregate four-dimensional personality. It runs on the farfield homelab in Docker Compose.
+
+It cannot run on Cloudflare Workers: `server.apron.chat` rejects every request carrying the `CF-Worker` header (`extractClientIp` in apron-server-cloudflare's `src/ip.ts`).
 
 ## Setup
 
-Requires Bun and a Cloudflare account.
-
-1. Run `/invite-bot` in Apron. Keep the returned token secret. Running it again revokes the old token and disconnects that bot.
-2. Install and create KV:
-
-```sh
-bun install
-bunx wrangler login
-```
-
-The `PERSONA` KV namespace already exists and its ID is in `wrangler.jsonc`. Set `ROOMS` to comma-separated room IDs. Add your bot to those rooms in Apron with `/invite @bot_<your_user_id>`. Membership permissions depend on the server.
-
-3. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models. Both requests also send `provider: { data_collection: 'deny' }`. They do not require zero data retention: almost no free endpoints offer it, so providers may retain prompts briefly under their own policies. Endpoint eligibility and free availability can prevent inference; the bot keeps silent on errors and never relaxes privacy automatically.
-4. Set secrets interactively:
+1. Run `/invite-bot` in Apron. Keep the returned token secret. Running it again revokes the old token and disconnects that bot. Add the bot to rooms other than `general` with `/invite @bot_<your_user_id>`.
+2. In OpenRouter's account privacy settings, disable prompt/output logging and training/data collection for free models. Restrict the key to the Free Models Router and give it a spend limit. Both requests send `provider: { data_collection: 'deny' }`. They do not require zero data retention: almost no free endpoints offer it, so providers may retain prompts briefly under their own policies. The bot keeps silent on inference errors and never relaxes privacy on its own.
+3. On the box, clone into `~/projects/apron-persona`, create `data/`, and write `.env` (chmod 600):
 
 ```sh
-bunx wrangler secret put APRON_TOKEN
-bunx wrangler secret put OPENROUTER_API_KEY
-bunx wrangler secret put ADMIN_TOKEN
-bunx wrangler secret put HASH_SECRET
+APRON_TOKEN=...
+OPENROUTER_API_KEY=...
+HASH_SECRET=...   # openssl rand -hex 32
 ```
 
-Use separate random values for ADMIN_TOKEN and HASH_SECRET. Generate each with `openssl rand -hex 32`. For local development copy `.dev.vars.example` to `.dev.vars` and populate those four values.
+Optional overrides: `ROOMS` (comma-separated, default `general`), `BOT_NAME`, `DECISION_MODEL`, `CHAT_MODEL` (both default `openrouter/free`), `DAILY_CALLS` (40), `HALF_LIFE_DAYS` (30), `APRON_URL`.
 
-5. Verify and deploy. Pushes to `main` also deploy through Workers Builds (build command `bun test`, deploy command `bunx wrangler deploy`):
+4. Deploy, then check status:
 
 ```sh
-bun test
-bun run build
-bun run deploy
+ff-deploy apron-persona
+docker compose -f ~/projects/apron-persona/compose.yaml logs bot
+cat ~/projects/apron-persona/data/status.json
 ```
 
-6. Start using the deployed URL and your admin secret:
-
-```sh
-read -r -p 'Worker URL: ' BOT_URL
-read -r -s -p 'Admin token: ' BOT_ADMIN_TOKEN
-curl -X POST "$BOT_URL/start" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
-curl "$BOT_URL/status" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
-```
-
-`POST /stop` disables the bot. Endpoints require the bearer secret. The bot starts disabled. Once enabled, a Durable Object alarm polls every `POLL_MINUTES` (default 5): it connects, authenticates, reads the messages logged since the last poll with `history`, replies, and disconnects within 45 seconds. Replies therefore arrive up to `POLL_MINUTES` after a mention. The first poll only records the end of the log. Failures, including authentication, retry on the next poll so replacing the secret can recover. Status exposes only aggregate style, enabled state, budget counts, and generic error codes.
+`docker compose stop` stops the bot. Logs carry only connection state and generic error codes. `status.json` holds connection state, the error code, budget counts, and the aggregate style.
 
 ## Behavior
 
-- Learns from permitted rooms, and replies only to mentions or replies to its own recent messages (among the last 60 logged). Bot/system/own messages are excluded. Says hello once in each room when `ROOMS` changes.
+- Learns from permitted rooms, and replies only to mentions or replies to its own recent messages. Bot/system/own messages are excluded. Says hello once in each room when `ROOMS` changes.
 - Asks the classifier for one JSON object: learning probability, reply probability, and a five-level choice for each of the four traits.
 - Four axes: warmth, playfulness, curiosity, expressiveness. Each has five quantized positions, giving at most 625 cells. The current personality is their weighted centroid with a neutral prior of ten observations.
-- Thirty-day weight half-life. Each participant contributes at most once per poll. Learning requires eligibility probability >= .8; replying requires >= .7. These are initial thresholds, not empirically validated guarantees.
-- HMAC fingerprints suppress normalized duplicate messages within a poll. Fingerprints and participant rate-limit keys remain in memory and reset every poll. Hash bits never determine trait coordinates.
-- At most 50 new log records per poll, at most 2,000 characters per message. Reply prompts include at most eight entries from the same room, fetched from `history` and held in memory only during the poll. No history backfill, tools, embeddings, framework, or conversation database.
-- Fifteen-second reply cooldown. Daily inference budget defaults to 40 total calls, UTC reset, persisted in Durable Object storage; each classification and completion counts separately. Upstream errors also consume the local budget. No automatic inference retries.
+- Thirty-day weight half-life. Each participant contributes at most once per five minutes. Learning requires eligibility probability >= .8; replying requires >= .7. These are initial thresholds, not empirically validated guarantees.
+- HMAC fingerprints suppress normalized duplicate messages for five minutes. Fingerprints and participant rate-limit keys remain in memory. Hash bits never determine trait coordinates.
+- At most twelve recent text entries, at most 2,000 characters per incoming message, and five-minute expiry. Reply prompts include at most eight entries from the same room. At most four messages await processing. No history backfill, tools, embeddings, framework, or conversation database.
+- A one-minute tick pings, reconnects (including after an auth failure, so a replaced token recovers), and checkpoints.
+- Fifteen-second reply cooldown. Daily inference budget defaults to 40 total calls, UTC reset, persisted in `state.json`; each classification and completion counts separately. Upstream errors also consume the budget. No automatic inference retries.
 
 ## Persistence and privacy
 
-KV key `personality:v1` stores only `{ version, at, cells }`. Durable Object storage holds enabled state, daily call counts, and alarm metadata. Source text, replies, names, user IDs, and content fingerprints are never intentionally written to storage or logs. Worker observability is disabled and code has no console logging. Raw text is sent transiently to inference providers. Apron's server can retain messages and the bot's posted replies under its own policy. Provider/account policies and legal exceptions still apply; numerical aggregation is not a formal anonymity or differential-privacy guarantee.
+`data/state.json` stores only the personality `{ version, at, cells }`, the daily call count, and the rooms already greeted. Source text, replies, names, user IDs, and content fingerprints are never intentionally written to disk or logs. Raw text is sent transiently to inference providers. Apron's server can retain messages and the bot's posted replies under its own policy. Provider/account policies and legal exceptions still apply; numerical aggregation is not a formal anonymity or differential-privacy guarantee.
 
-Snapshots are written at most once every ten minutes, and on `/stop`, by one writer. KV is eventually consistent; a restart can lose recent observations or load a stale snapshot. This intentionally accepts approximate personality weights. Context and duplicate suppression reset every poll. The only stored cursor is the last processed `log_id`.
+Changed weights are written within a minute and on shutdown; a crash can lose the last minute. Context and duplicate suppression reset on restart.
 
 This implements community style. Facts, personal histories, and shared lore are not retained. Edits/deletions do not retroactively reverse aggregate contributions. Use only rooms whose members agree to this processing.
 
 ## Costs
 
-- Inference is free models only, capped at `DAILY_CALLS`. Also set a $0 credit limit on the OpenRouter key so a paid route can never bill.
-- The bot never holds a connection between polls, so the Durable Object is active only a few seconds every `POLL_MINUTES`: a few hundred GB-s a day, and at most about 2,200 if every poll hit its 45-second cap, against the 13,000 GB-s daily Free plan limit. There is no cron; a stopped bot uses nothing.
-- Each poll costs one alarm, two or three Durable Object storage writes, and at most one KV write every ten minutes (144 a day, against the 1,000-a-day Free limit).
-- Workers Builds runs only for `main` and skips Markdown-only changes.
+Nothing here bills. The bot runs on the homelab, inference uses free models only and stops at `DAILY_CALLS`, and the OpenRouter key's allowlist and spend limit back that up.
 
 ## Files and validation
 
-- `src/index.js`: transport, lifecycle, inference and persistence.
+- `src/index.js`: configuration, state files, the one-minute tick, and shutdown.
+- `src/bot.js`: the Apron connection, filtering, inference, and replies.
 - `src/core.js`: classification prompt and parser, HMAC, 4D aggregation and decay.
-- `test/`: deterministic privacy/persistence, filtering, malformed response, budget and aggregation checks, with no real conversation data.
+- `test/`: deterministic privacy/persistence, filtering, malformed response, budget, session, and aggregation checks, with no real conversation data. Run `bun test`.
 
 The classifier parser accepts only that JSON object (optionally in a code fence) and fails closed on anything else. Tests mock inference.
 
 ## References
 
-- https://github.com/apron-chat/apron-server-cloudflare/blob/main/src/index.ts
+- https://github.com/apron-chat/apron-server-cloudflare/blob/main/src/ip.ts
 - https://openrouter.ai/docs/guides/routing/routers/free-router
-- https://developers.cloudflare.com/durable-objects/best-practices/websockets/
-- https://developers.cloudflare.com/kv/concepts/how-kv-works/
