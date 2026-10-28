@@ -153,7 +153,7 @@ test('a saved persona persists and becomes the next reply\'s system message', as
   assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, a pirate.');
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
   await bot.queue;
-  assert.deepEqual(bodies.at(-1).messages[0], { role: 'system', content: `You are Persona, a pirate. Your style scores from 0 to 1 are {"warmth":0.5,"playfulness":0.5,"curiosity":0.5,"expressiveness":0.5}. Higher means warmer, more playful, more curious, more expressive. ${guardrails}` });
+  assert.deepEqual(bodies.at(-1).messages[0], { role: 'system', content: `You are Persona, a pirate. Match the room's temperament: so far it's middle of the road on every count. ${guardrails}` });
   assert.equal(ws.sent.at(-1).params.body.text, 'arr');
 });
 // A model that classifies with `scores` (or answers `classify` raw) and replies with `text`, or fails with a status.
