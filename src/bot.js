@@ -40,8 +40,10 @@ export class Bot {
     if (!this.ws && !this.env.APRON_TOKEN) this.fail('no-apron-token');
     else if (!this.ws) this.connect();
     else if (this.ready && Date.now() - this.lastFrame > 120000) this.drop('silent');
-    else if (this.ready) this.send('ping', {});
+    else if (this.ready) this.ping();
   }
+  // The server answers a ping with a pong frame, never a response, so the round trip is timed by hand.
+  ping() { this.pingedAt = Date.now(); this.send('ping', {}); }
   send(method, params, id = String(++this.seq)) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ method, id, params }));
   }
@@ -102,6 +104,7 @@ export class Bot {
         while (this.own.size > 64) this.own.delete(this.own.values().next().value);
       }
       if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
+      if (frame.method === 'pong' && this.pingedAt) { this.latency = Date.now() - this.pingedAt; this.pingedAt = 0; }
       if (frame.method === 'server') this.server = frame.params ?? {};
       if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
       if (frame.id === 'auth' && frame.error) { this.record('auth-denied'); this.fail('apron-auth-denied'); this.drop('auth-denied'); }
@@ -114,7 +117,8 @@ export class Bot {
       if (frame.method !== 'message') return;
       const p = frame.params, mentioned = this.mentioned(p);
       // Text is kept, in memory only, just for messages that engage the bot.
-      const seen = { room: p?.room_id, message_id: p?.message_id, reply_to: p?.reply_to?.message_id, from: p?.from?.user_id, mentioned,
+      const seen = { room: p?.room_id, message_id: p?.message_id, reply_to: p?.reply_to?.message_id, from: p?.from?.user_id,
+        name: typeof p?.from?.name === 'string' ? p.from.name.slice(0, 64) : undefined, mentioned,
         text: mentioned && typeof p.body?.text === 'string' ? p.body.text.slice(0, 2000) : undefined };
       const skip = incoming(p, this.self, this.bots, this.rooms) ?? (!this.ready ? 'stale' : this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
       if (skip) return this.record('message', { ...seen, outcome: skip });
@@ -131,7 +135,7 @@ export class Bot {
   use(url, token) {
     this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
     if (this.ws) this.drop('switched');
-    this.bots.clear(); this.own.clear(); this.self = this.you = this.server = undefined; this.error = null;
+    this.bots.clear(); this.own.clear(); this.self = this.you = this.server = this.latency = undefined; this.error = null;
     this.connect();
   }
   authed(you) {
@@ -177,11 +181,13 @@ export class Bot {
     try { result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) })); }
     catch (e) { return failed('classify-failed', e); }
     if (connection !== this.ws) return { outcome: 'stale' };
-    if (eligible && result.learn >= .8) {
+    const learned = eligible && result.learn >= .8;
+    if (learned) {
       this.people.set(participant, now);
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
-    const scores = { learn_p: result.learn, reply_p: result.reply };
+    // style is present only when the message was learned from.
+    const scores = { learn_p: result.learn, reply_p: result.reply, style: learned ? result.vector : undefined };
     if (!mentioned) return { outcome: 'learned-only', ...scores };
     if (result.reply < .7) return { outcome: 'declined', ...scores };
     if (now - this.lastReply < 15000) return { outcome: 'cooldown', ...scores };
@@ -206,7 +212,7 @@ export class Bot {
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {
-    return { url: this.env.APRON_URL, since: this.ready ? this.since : null, server: this.server ?? null, you: this.you ?? null };
+    return { url: this.env.APRON_URL, since: this.ready ? this.since : null, latency: this.ready ? this.latency ?? null : null, server: this.server ?? null, you: this.you ?? null };
   }
   // The server names a bot after its owner; the environment's name stands in before sign-in.
   get name() { return this.you?.name ?? this.env.BOT_NAME; }
