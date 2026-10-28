@@ -1,5 +1,5 @@
 import { escape, doc } from './page.js';
-import { promptParts } from './settings.js';
+import { promptParts, cue } from './settings.js';
 import { axes, leanings } from './core.js';
 import { transcript, today } from './transcript.js';
 const css = `:root{color-scheme:light dark;--fg:#1d1c1a;--muted:#7b776f;--faint:#aca79c;--bg:#f7f5f0;--paper:#fffefa;--line:#e3dfd5;--ok:#2f7a55;--warn:#a1650a;--bad:#b3261e;--me:#eef3ee}
@@ -163,7 +163,7 @@ ${post(ctx, '/persona/reset', '<button>reset to the default persona</button>', '
 ${persona}
 <div class="traits">${traits}</div>
 <p class="lean">${drift(status.personality)}</p>
-<details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div></details>
+<details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div><div class="fixed"><small>then the room · fixed</small>the last 8 lines here, one "name: text" each, with mine as "you", then: ${escape(cue)}</div></details>
 </div></section>`;
 }
 // An unchecked box sends nothing, so a hidden "off" follows each one; the route reads the first value.

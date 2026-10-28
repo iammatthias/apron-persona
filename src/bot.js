@@ -1,5 +1,5 @@
 import { classify, decision, fresh, decay, learn, persona, fingerprint, incoming, addressing, trigger } from './core.js';
-import { settings, restore, systemPrompt } from './settings.js';
+import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
 const TTL = 300000;
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
@@ -174,7 +174,8 @@ export class Bot {
     if (this.seen.has(hash)) return { outcome: 'duplicate' };
     this.seen.set(hash, now);
     const addressed = this.addressed(p);
-    this.context.push({ room: p.room_id, at: now, role: 'user', content: text });
+    const speaker = (typeof p.from.name === 'string' && p.from.name.replace(/\s+/g, ' ').trim().slice(0, 64)) || p.from.user_id;
+    this.context.push({ room: p.room_id, at: now, name: speaker, content: text });
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
     // One learning contribution per participant per five minutes.
     const eligible = !this.people.has(participant);
@@ -202,18 +203,19 @@ export class Bot {
       output = await this.api({
         model: this.env.CHAT_MODEL, max_tokens: 1500,
         messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
-          ...this.context.filter(x => x.room === p.room_id).slice(-8).map(({ role, content }) => ({ role, content }))],
+          { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8)) }],
       });
     } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
-    const reply = output?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim()) return { outcome: 'reply-empty', respond, ...scores };
+    const raw = output?.choices?.[0]?.message?.content;
+    const reply = typeof raw === 'string' ? line(raw, ['you', this.name, this.self]) : '';
+    if (!reply) return { outcome: 'reply-empty', respond, ...scores };
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
-    const content = reply.trim().slice(0, 1800);
+    const content = reply.slice(0, 1800);
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } });
     this.lastReply = Date.now();
     if (organic) this.organic.set(p.room_id, this.lastReply);
-    this.context.push({ room: p.room_id, at: this.lastReply, role: 'assistant', content });
+    this.context.push({ room: p.room_id, at: this.lastReply, name: 'you', content });
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
     catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
   }

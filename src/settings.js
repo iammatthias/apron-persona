@@ -60,3 +60,14 @@ export function promptParts({ persona }, personality, name) {
   return [persona.split('{name}').join(name), temperament(personality), guardrails];
 }
 export const systemPrompt = (s, personality, name) => promptParts(s, personality, name).join(' ');
+export const cue = 'Write your next line in the room. Just the text: no name in front, no quotes.';
+// Recent room lines as one transcript, so the model plays a member of the room rather than an assistant taking turns.
+// Continuation lines are indented, so a message can't pass off a line as someone else's.
+export const roomPrompt = lines => `${lines.map(({ name, content }) => `${name}: ${content.replace(/\n/g, '\n  ')}`).join('\n')}\n\n${cue}`;
+const literal = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+// The model's line without a speaker prefix or wrapping quotes, which free models often add anyway.
+export function line(reply, names) {
+  const s = reply.trim().replace(new RegExp(`^(?:${names.filter(Boolean).map(literal).join('|')})\\s*:\\s*`, 'i'), '');
+  const quoted = s.match(/^["“'](.*)["”']$/s);
+  return (quoted ? quoted[1] : s).trim();
+}

@@ -58,7 +58,7 @@ test('who I am shows the persona, the drift from the start, and the exact prompt
   assert.ok(html.includes('<span>warmth</span><i style="--v:62%" title="0.62"></i>'));
   assert.ok(html.includes('<p class="lean">This room has made me warmer and more matter-of-fact than where I started (the tick at 0.5).</p>'));
   assert.ok(html.includes('<div><small>persona</small>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; P&#60;i&#62;</div>'));
-  assert.ok(html.includes(`<div class="fixed"><small>guardrails · fixed</small>${guardrails}</div></details>`));
+  assert.ok(html.includes(`<div class="fixed"><small>guardrails · fixed</small>${guardrails}</div><div class="fixed"><small>then the room · fixed</small>the last 8 lines here, one "name: text" each, with mine as "you", then: Write your next line in the room. Just the text: no name in front, no quotes.</div></details>`));
   assert.ok(html.includes("<div><small>learned style</small>Match the room's temperament: it runs a little warmer than a typical chat.</div>"));
   const edit = dashboard({ ...ctx, view: 'who', edit: true });
   assert.ok(edit.includes('<textarea name="persona" maxlength="4000" required>canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; {name}</textarea>'));

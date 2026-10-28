@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
-import { settings, guardrails } from '../src/settings.js';
+import { settings, guardrails, cue } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 // A fake Apron connection that records sent frames and acknowledges each new post; `emit` delivers server frames.
@@ -143,18 +143,23 @@ test('a legacy state.json with top-level name and paused migrates into settings'
   bot.save();
   assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { ...defaults, paused: true } });
 });
-test('a saved persona persists and becomes the next reply\'s system message', async () => {
+test('a saved persona persists, and a reply sees the room as one named transcript and posts a clean line', async () => {
   const bodies = [];
   const { bot, ws, saved } = connected(async (url, init) => {
     const body = JSON.parse(init.body); bodies.push(body);
-    return Response.json(body.temperature === 0 ? classified : { choices: [{ message: { content: 'arr' } }] });
+    return Response.json(body.temperature === 0 ? classified : { choices: [{ message: { content: 'Persona: "arr"' } }] });
   });
-  bot.configure({ persona: 'You are {name}, a pirate.' });
+  bot.configure({ persona: 'You are {name}, a pirate.', cooldown: '0' });
   assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, a pirate.');
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id: '11', from: { user_id: 'u_ana', name: 'Ana\nB' }, body: { text: 'ship ahoy' } } });
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id: '13', from: { user_id: 'dave' }, body: { text: 'again @bot_me' } } });
   await bot.queue;
-  assert.deepEqual(bodies.at(-1).messages[0], { role: 'system', content: `You are Persona, a pirate. Match the room's temperament: so far it's middle of the road on every count. ${guardrails}` });
-  assert.equal(ws.sent.at(-1).params.body.text, 'arr');
+  assert.deepEqual(bodies.at(-1).messages, [
+    { role: 'system', content: `You are Persona, a pirate. Match the room's temperament: so far it's middle of the road on every count. ${guardrails}` },
+    { role: 'user', content: `Ana B: ship ahoy\ncarol: hey @bot_me\nyou: arr\ndave: again @bot_me\n\n${cue}` },
+  ]);
+  assert.deepEqual(posts(ws).map(m => m.body.text), ['arr', 'arr']);
 });
 // A model that classifies with `scores` (or answers `classify` raw) and replies with `text`, or fails with a status.
 const model = ({ scores = { learn: .9, reply: .9 }, classify, text = 'hi there', status = 200, replyStatus = 200 } = {}) => async (url, init) => {
