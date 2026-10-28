@@ -116,7 +116,7 @@ const toggle = ctx => post(ctx, '/settings', `<input type="hidden" name="paused"
 <button class="switch ${ctx.status.paused ? 'off' : 'on'}"><span><b>${ctx.status.paused ? 'Paused' : 'Listening'}</b> <small>${ctx.status.paused ? 'tap to resume' : 'tap to stop'}</small></span><i></i></button>`);
 function sentence({ status, rooms, details, limit, calls }) {
   const where = list(rooms.map(r => `#${r}`)), host = status.server?.host ?? (() => { try { return new URL(details.url).host; } catch { return details.url; } })();
-  const spent = ` ${calls} of my ${limit} calls are spent today.`;
+  const spent = Number(limit) ? ` ${calls} of my ${limit} calls are spent today.` : ' I have no model calls to spend today.';
   if (!status.connected) return (status.error ? `I can't reach ${host} (${status.error}).` : `I'm connecting to ${host}.`) + spent;
   return (status.paused ? `I'm paused, so I'm not reading ${where} on ${host}.` : `I'm listening in ${where} on ${host}.`) + spent;
 }
@@ -169,7 +169,7 @@ function budget({ events, limit, calls, now }) {
   const cells = n ? `<div class="day" style="--n:${n}">${'<i class="u"></i>'.repeat(lit)}${'<i></i>'.repeat(n - lit)}</div>` : '';
   const since = d.since > midnight ? ` since <time datetime="${new Date(d.since).toISOString()}">${hhmm(d.since)} UTC</time>` : '';
   return `<section id="today"><h2>today</h2><div class="card">${cells}
-<p class="small">${calls} of ${escape(limit)} calls. ${plural(d.replies, 'reply', 'replies')}, ${plural(d.unanswered, 'mention')} I didn't answer, ${plural(d.learned, 'thing')} learned${since}.</p></div></section>`;
+<p class="small">${max ? `${calls} of ${escape(limit)} calls.` : 'No calls allowed today.'} ${plural(d.replies, 'reply', 'replies')}, ${plural(d.unanswered, 'mention')} I didn't answer, ${plural(d.learned, 'thing')} learned${since}.</p></div></section>`;
 }
 function said(ctx) {
   const { posts } = ctx;

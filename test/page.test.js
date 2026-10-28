@@ -68,7 +68,9 @@ test('today counts calls as cells and sums up the day', () => {
   const html = dashboard(ctx);
   assert.ok(html.includes(`<div class="day" style="--n:40">${'<i class="u"></i>'.repeat(3)}${'<i></i>'.repeat(37)}</div>`));
   assert.ok(html.includes(`3 of 40 calls. 1 reply, 3 mentions I didn't answer, 1 thing learned since <time datetime="${new Date(at(9)).toISOString()}">14:22 UTC</time>.</p>`));
-  assert.ok(!dashboard({ ...ctx, limit: '0' }).includes('class="day"'));
+  const none = dashboard({ ...ctx, limit: '0' });
+  assert.ok(!none.includes('class="day"') && none.includes('<p class="small">No calls allowed today. 1 reply,'));
+  assert.ok(none.includes("on h. I have no model calls to spend today.</p>"));
 });
 test('where I live names the server, connection and ping, and previews only https or data:image avatars', () => {
   const html = dashboard({ ...ctx, lastError: { code: 'inference-<429>', at: Date.UTC(2026, 9, 28, 12, 0, 5) } });
