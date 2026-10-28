@@ -18,14 +18,18 @@ test('fingerprints normalize repeats and depend on secret', async () => {
   assert.equal(a, await fingerprint('one', 'hello world'));
   assert.notEqual(a, await fingerprint('two', 'hello world'));
 });
-test('ignores bots, notices, own messages, deletes and unapproved rooms', () => {
+test('names why it skips bots, notices, own messages, deletes, blanks and unwatched rooms', () => {
   const p = { from: { user_id: 'human' }, room_id: 'general', message_id: '1', body: { text: 'hello' } };
-  const accept = x => incoming(x, 'self', new Set(['otherbot']), ['general']);
-  assert.ok(accept(p));
-  for (const user_id of ['self', '~private', 'bot_alice', 'otherbot']) assert.ok(!accept({ ...p, from: { user_id } }));
-  assert.ok(!accept({ ...p, deleted: true }));
-  assert.ok(!accept({ ...p, room_id: 'private' }));
-  assert.ok(!accept({ ...p, from: { user_id: 'custom', roles: ['bot'] } }));
+  const skip = x => incoming(x, 'bot_self', new Set(['otherbot']), ['general']);
+  assert.equal(skip(p), null);
+  assert.equal(skip({ ...p, from: { user_id: 'bot_self' } }), 'own');
+  assert.deepEqual(['~private', 'bot_alice', 'otherbot'].map(user_id => skip({ ...p, from: { user_id } })), ['from-bot', 'from-bot', 'from-bot']);
+  assert.equal(skip({ ...p, from: { user_id: 'custom', roles: ['bot'] } }), 'from-bot');
+  assert.equal(skip({ ...p, deleted: true, body: undefined }), 'deleted');
+  assert.equal(skip({ ...p, room_id: 'private' }), 'other-room');
+  assert.equal(skip({ ...p, body: { text: '  ' } }), 'empty');
+  assert.equal(skip({ ...p, message_id: undefined }), 'empty');
+  assert.equal(skip(undefined), 'other-room');
 });
 test('rejects malformed decisions and computes expected trait values', () => {
   const reply = content => ({ choices: [{ message: { content } }] });

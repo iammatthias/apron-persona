@@ -11,7 +11,7 @@ function socket() {
     sent, readyState: 1,
     addEventListener(type, f) { (listeners[type] ??= []).push(f); },
     emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
-    close() { this.readyState = 3; listeners.close?.forEach(f => f({})); },
+    close() { this.readyState = 3; listeners.close?.forEach(f => f({ type: 'close', code: 1006, reason: '' })); },
     send(raw) { sent.push(JSON.parse(raw)); },
   };
 }
@@ -151,4 +151,101 @@ test('a saved persona persists and becomes the next reply\'s system message', as
   await bot.queue;
   assert.deepEqual(bodies.at(-1).messages[0], { role: 'system', content: `You are Persona, a pirate. Your style scores from 0 to 1 are {"warmth":0.5,"playfulness":0.5,"curiosity":0.5,"expressiveness":0.5}. Higher means warmer, more playful, more curious, more expressive. ${guardrails}` });
   assert.equal(ws.sent.at(-1).params.body.text, 'arr');
+});
+// A model that classifies with `scores` (or answers `classify` raw) and replies with `text`, or fails with a status.
+const model = ({ scores = { learn: .9, reply: .9 }, classify, text = 'hi there', status = 200, replyStatus = 200 } = {}) => async (url, init) => {
+  if (JSON.parse(init.body).temperature === 0) {
+    if (status !== 200) return new Response('', { status });
+    return Response.json({ choices: [{ message: { content: classify ?? JSON.stringify({ ...JSON.parse(classified.choices[0].message.content), ...scores }) } }] });
+  }
+  return replyStatus === 200 ? Response.json({ choices: [{ message: { content: text } }] }) : new Response('', { status: replyStatus });
+};
+let ids = 100;
+// Delivers one message frame and returns the message events it recorded, without their times.
+async function deliver({ bot, ws }, params = {}, text = 'hey @bot_me') {
+  const before = bot.log.list().at(-1)?.at;
+  const message_id = String(++ids);
+  ws.emit({ method: 'message', params: { room_id: 'general', message_id, from: { user_id: 'carol' }, body: { text }, ...params } });
+  await bot.queue;
+  return bot.log.list(before).filter(e => e.kind === 'message').map(({ at, kind, ...e }) => ({ ...e, message_id: e.message_id === message_id ? 'this' : e.message_id }));
+}
+const seen = (outcome, extra = {}) => [{ room: 'general', message_id: 'this', from: 'carol', mentioned: true, outcome, ...extra }];
+test('each skipped frame records exactly one message event naming why', async () => {
+  const f = connected(model());
+  assert.deepEqual(await deliver(f, { room_id: 'random' }), [{ room: 'random', message_id: 'this', from: 'carol', mentioned: true, outcome: 'other-room' }]);
+  assert.deepEqual(await deliver(f, { from: { user_id: 'bot_alice' } }), [{ room: 'general', message_id: 'this', from: 'bot_alice', mentioned: true, outcome: 'from-bot' }]);
+  assert.deepEqual(await deliver(f, { from: { user_id: 'bot_me' } }, 'mine'), [{ room: 'general', message_id: 'this', from: 'bot_me', mentioned: false, outcome: 'own' }]);
+  assert.deepEqual(await deliver(f, { deleted: true, body: undefined }), seen('deleted', { mentioned: false }));
+  assert.deepEqual(await deliver(f, {}, '   '), seen('empty', { mentioned: false }));
+  f.bot.configure({ paused: true });
+  assert.deepEqual(await deliver(f), seen('paused'));
+});
+test('a frame before sign-in is stale, and a fifth queued frame is busy', async () => {
+  const f = fixture(model());
+  f.bot.tick(); f.ws.emit({ method: 'server', params: {} });
+  assert.deepEqual(await deliver(f, {}, 'hello'), seen('stale', { mentioned: false }));
+  let release; const gate = new Promise(r => release = r);
+  const g = connected(async (...a) => { await gate; return model()(...a); });
+  for (const n of [1, 2, 3, 4, 5]) g.ws.emit({ method: 'message', params: { room_id: 'general', message_id: `q${n}`, from: { user_id: `u${n}` }, body: { text: `hey @bot_me ${n}` } } });
+  assert.deepEqual(g.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['q5', 'busy']]);
+  release(); await g.bot.queue;
+  assert.deepEqual(g.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['q5', 'busy'], ['q1', 'replied'], ['q2', 'cooldown'], ['q3', 'cooldown'], ['q4', 'cooldown']]);
+});
+test('duplicates and a sender already counted are skipped before any call', async () => {
+  let calls = 0;
+  const f = connected(async (...a) => { ++calls; return model()(...a); });
+  assert.deepEqual(await deliver(f, {}, 'nice weather'), seen('learned-only', { mentioned: false, learn: .9, reply: .9 }));
+  assert.deepEqual(await deliver(f, {}, 'nice  WEATHER'), seen('duplicate', { mentioned: false }));
+  assert.deepEqual(await deliver(f, {}, 'something else'), seen('rate-limited', { mentioned: false }));
+  assert.equal(calls, 1);
+});
+test('a mention can be declined, cooled down, or out of budget', async () => {
+  assert.deepEqual(await deliver(connected(model({ scores: { reply: .4 } }))), seen('declined', { learn: .9, reply: .4 }));
+  const f = connected(model());
+  assert.deepEqual(await deliver(f), seen('replied', { learn: .9, reply: .9 }));
+  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'again @bot_me'), [{ ...seen('cooldown', { learn: .9, reply: .9 })[0], from: 'dave' }]);
+  const g = connected(model());
+  g.bot.budget = { day: new Date().toISOString().slice(0, 10), calls: 40 };
+  assert.deepEqual(await deliver(g), seen('budget'));
+});
+test('classification and reply failures carry their code', async () => {
+  assert.deepEqual(await deliver(connected(model({ classify: 'not json' }))), seen('classify-failed', { detail: 'invalid-decision' }));
+  assert.deepEqual(await deliver(connected(model({ status: 500 }))), seen('classify-failed', { detail: 'inference-500' }));
+  const empty = connected(model({ text: '  ' }));
+  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn: .9, reply: .9 }));
+  assert.equal(empty.ws.sent.filter(f => f.method === 'message').length, 0);
+  assert.deepEqual(await deliver(connected(model({ replyStatus: 503 }))), seen('reply-failed', { learn: .9, reply: .9, detail: 'inference-503' }));
+});
+test('no event carries message text or the model\'s reply', async () => {
+  const canary = 'private-content-canary @bot_me';
+  for (const m of [model({ text: 'model-canary' }), model({ scores: { reply: .1 } }), model({ text: '' }), model({ classify: 'x' })]) {
+    const f = connected(m);
+    assert.equal((await deliver(f, {}, canary)).length, 1);
+    const all = JSON.stringify(f.bot.log.list());
+    assert.ok(!all.includes('private-content-canary') && !all.includes('model-canary'), all);
+  }
+});
+test('connection, auth, settings, deletes and errors are recorded', async () => {
+  const f = connected();
+  f.bot.configure({ paused: true });
+  const removal = f.bot.remove('general', '4');
+  reply(f.ws, { message_id: '4' }); await removal;
+  f.ws.close();
+  f.bot.use('wss://other.test/', 'bad');
+  f.ws.emit({ method: 'server', params: {} });
+  f.ws.emit({ id: 'auth', error: { message: 'denied' } });
+  f.bot.tick();
+  const g = new Bot({ ...env, APRON_TOKEN: '' }, { load: () => ({}), save: () => {} }, { connect: socket });
+  g.tick(); g.tick();
+  assert.deepEqual([...f.bot.log.list(), ...g.log.list()].map(({ at, ...e }) => e), [
+    { kind: 'connected', host: 'apron.test', user_id: 'bot_me' },
+    { kind: 'settings', keys: ['paused'] },
+    { kind: 'deleted', room: 'general', message_id: '4' },
+    { kind: 'disconnected', reason: 'close-1006' },
+    { kind: 'auth-denied' },
+    { kind: 'error', code: 'apron-auth-denied' },
+    { kind: 'disconnected', reason: 'auth-denied' },
+    { kind: 'error', code: 'no-apron-token' },
+  ]);
+  assert.equal(f.bot.lastError.code, 'apron-auth-denied');
 });

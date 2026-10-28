@@ -56,9 +56,14 @@ export async function fingerprint(secret, text) {
   const bytes = await crypto.subtle.sign('HMAC', key, enc.encode(text.normalize('NFKC').toLowerCase().replace(/\s+/g, ' ').trim()));
   return Array.from(new Uint8Array(bytes), b => b.toString(16).padStart(2, '0')).join('');
 }
+// Why a message frame is skipped before any work, or null when the bot should consider it.
 export function incoming(p, self, bots, rooms) {
   const id = p?.from?.user_id;
-  return typeof id === 'string' && id !== self && !id.startsWith('~') && !id.startsWith('bot_') && !bots.has(id)
-    && !p.from.roles?.includes('bot') && rooms.includes(p.room_id) && !p.deleted
-    && typeof p.message_id === 'string' && typeof p.body?.text === 'string' && p.body.text.trim().length > 0;
+  if (!rooms.includes(p?.room_id)) return 'other-room';
+  if (p.deleted) return 'deleted';
+  if (typeof id !== 'string' || typeof p.message_id !== 'string') return 'empty';
+  if (id === self) return 'own';
+  if (id.startsWith('~') || id.startsWith('bot_') || bots.has(id) || p.from.roles?.includes('bot')) return 'from-bot';
+  if (typeof p.body?.text !== 'string' || !p.body.text.trim()) return 'empty';
+  return null;
 }

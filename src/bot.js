@@ -1,31 +1,45 @@
 import { classify, decision, fresh, decay, learn, persona, fingerprint, incoming } from './core.js';
 import { settings, restore, systemPrompt } from './settings.js';
+import { Log, event } from './events.js';
 const TTL = 300000;
 // One live Apron connection: learns community style and replies when addressed.
 export class Bot {
-  constructor(env, store, { connect = url => new WebSocket(url), request = fetch } = {}) {
-    this.env = env; this.store = store; this.connectTo = connect; this.request = request;
+  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log() } = {}) {
+    this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log;
     this.rooms = env.ROOMS.split(',').map(s => s.trim()).filter(Boolean);
     const saved = store.load();
     this.state = saved.personality ?? fresh();
     this.budget = saved.budget ?? { day: '', calls: 0 };
     this.settings = restore(saved);
     this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.error = null;
+    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve();
   }
   save() {
     this.store.save({ personality: this.state, budget: this.budget, settings: this.settings });
     this.dirty = false;
   }
+  record(kind, fields) { this.log.push(event(kind, fields)); }
+  // Unlike `error`, `lastError` survives reconnecting. A repeat of the current error is not recorded again.
+  fail(code) {
+    if (this.error === code) return;
+    this.error = code; this.lastError = { code, at: Date.now() };
+    this.record('error', { code });
+  }
+  drop(reason) {
+    const ws = this.ws;
+    this.ws = null; this.ready = false; this.context = [];
+    this.record('disconnected', { reason });
+    ws.close();
+  }
   // Runs every minute: reconnects, pings, expires context, and checkpoints.
   tick() {
     this.prune();
     if (this.dirty) this.save();
-    if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.ws.close();
-    if (!this.ws && !this.env.APRON_TOKEN) this.error = 'no-apron-token';
+    if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.drop('auth-timeout');
+    if (!this.ws && !this.env.APRON_TOKEN) this.fail('no-apron-token');
     else if (!this.ws) this.connect();
-    else if (this.ready && Date.now() - this.lastFrame > 120000) this.ws.close();
+    else if (this.ready && Date.now() - this.lastFrame > 120000) this.drop('silent');
     else if (this.ready) this.send('ping', {});
   }
   send(method, params, id = String(++this.seq)) {
@@ -63,12 +77,20 @@ export class Bot {
     }
     if (!Object.keys(parsed).length) throw Error('nothing to save');
     this.settings = { ...this.settings, ...parsed }; this.save();
+    this.record('settings', { keys: Object.keys(parsed) });
   }
-  remove(room_id, message_id) { return this.call('message', { room_id, message_id, deleted: true }); }
+  async remove(room_id, message_id) {
+    await this.call('message', { room_id, message_id, deleted: true });
+    this.record('deleted', { room: room_id, message_id });
+  }
+  mentioned(p) {
+    const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
+    return !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`)) || this.own.has(p?.reply_to?.message_id);
+  }
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
     this.ws = ws; this.connectedAt = this.lastFrame = Date.now(); this.ready = false;
-    const closed = () => { if (this.ws === ws) { this.ws = null; this.ready = false; this.context = []; } };
+    const closed = e => { if (this.ws === ws) this.drop(e.reason || (e.code ? `close-${e.code}` : e.type ?? 'closed')); };
     ws.addEventListener('close', closed); ws.addEventListener('error', closed);
     ws.addEventListener('message', event => {
       if (this.ws !== ws || typeof event.data !== 'string' || event.data.length > 1048576) return;
@@ -78,7 +100,7 @@ export class Bot {
       if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
       if (frame.method === 'server') this.server = frame.params ?? {};
       if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
-      if (frame.id === 'auth' && frame.error) { this.error = 'apron-auth-denied'; ws.close(); }
+      if (frame.id === 'auth' && frame.error) { this.record('auth-denied'); this.fail('apron-auth-denied'); this.drop('auth-denied'); }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);
       if (frame.result?.message_id) {
         this.own.add(frame.result.message_id);
@@ -89,21 +111,26 @@ export class Bot {
         const u = frame.params?.new ?? frame.params?.you;
         if (u?.roles?.includes('bot')) this.bots.add(u.user_id);
       }
-      if (frame.method !== 'message' || !this.ready || this.settings.paused || !incoming(frame.params, this.self, this.bots, this.rooms) || this.pending >= 4) return;
+      if (frame.method !== 'message') return;
+      const p = frame.params, seen = { room: p?.room_id, message_id: p?.message_id, from: p?.from?.user_id, mentioned: this.mentioned(p) };
+      const skip = !this.ready ? 'stale' : incoming(p, this.self, this.bots, this.rooms) ?? (this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
+      if (skip) return this.record('message', { ...seen, outcome: skip });
       ++this.pending;
-      this.queue = this.queue.then(() => this.ws === ws && this.handle(frame.params))
-        .catch(() => { this.error = 'message-processing-failed'; }).finally(() => --this.pending);
+      this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
+        .then(result => this.record('message', { ...seen, ...result }), () => this.fail('message-processing-failed'))
+        .finally(() => --this.pending);
     });
   }
   // Switches to another Apron server or token, reconnecting now.
   use(url, token) {
     this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
-    this.ws?.close(); this.ws = null; this.ready = false; this.context = [];
+    if (this.ws) this.drop('switched');
     this.bots.clear(); this.own.clear(); this.self = this.you = this.server = undefined; this.error = null;
     this.connect();
   }
   authed(you) {
     this.self = you.user_id; this.you = you; this.ready = true; this.error = null; this.since = Date.now();
+    this.record('connected', { host: new URL(this.env.APRON_URL).host, user_id: this.self });
     for (const room_id of this.rooms) this.send('room_join', { room_id });
   }
   prune() {
@@ -125,38 +152,50 @@ export class Bot {
     if (!res.ok) throw Error(`inference-${res.status}`);
     return res.json();
   }
+  // What became of one message that passed incoming(): an outcome, plus the classifier's probabilities once known.
   async handle(p) {
     const connection = this.ws;
     this.prune();
     const text = p.body.text.slice(0, 2000), now = Date.now();
     const hash = await fingerprint(this.env.HASH_SECRET, text);
-    if (this.seen.has(hash)) return;
+    if (this.seen.has(hash)) return { outcome: 'duplicate' };
     this.seen.set(hash, now);
-    const mentioned = p.body.mentions?.includes(this.self) || text.includes(`@${this.self}`) || this.own.has(p.reply_to?.message_id);
+    const mentioned = this.mentioned(p);
     this.context.push({ room: p.room_id, at: now, role: 'user', content: text });
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
     // One learning contribution per participant per five minutes.
     const eligible = !this.people.has(participant);
-    if (!eligible && !mentioned) return;
-    const result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) }));
-    if (connection !== this.ws) return;
+    if (!eligible && !mentioned) return { outcome: 'rate-limited' };
+    const failed = (outcome, e, scores) => e.message === 'budget' ? { outcome: 'budget', ...scores } : { outcome, detail: e.name === 'TimeoutError' ? 'timeout' : e.message, ...scores };
+    let result;
+    try { result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) })); }
+    catch (e) { return failed('classify-failed', e); }
+    if (connection !== this.ws) return { outcome: 'stale' };
     if (eligible && result.learn >= .8) {
       this.people.set(participant, now);
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
-    if (!mentioned || result.reply < .7 || now - this.lastReply < 15000) return;
+    const scores = { learn: result.learn, reply: result.reply };
+    if (!mentioned) return { outcome: 'learned-only', ...scores };
+    if (result.reply < .7) return { outcome: 'declined', ...scores };
+    if (now - this.lastReply < 15000) return { outcome: 'cooldown', ...scores };
     this.prune();
-    const output = await this.api({
-      model: this.env.CHAT_MODEL, max_tokens: 1500,
-      messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
-        ...this.context.filter(x => x.room === p.room_id).slice(-8).map(({ role, content }) => ({ role, content }))],
-    });
+    let output;
+    try {
+      output = await this.api({
+        model: this.env.CHAT_MODEL, max_tokens: 1500,
+        messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
+          ...this.context.filter(x => x.room === p.room_id).slice(-8).map(({ role, content }) => ({ role, content }))],
+      });
+    } catch (e) { return failed('reply-failed', e, scores); }
     const reply = output?.choices?.[0]?.message?.content;
-    if (typeof reply !== 'string' || !reply.trim() || !this.ready || connection !== this.ws) return;
+    if (typeof reply !== 'string' || !reply.trim()) return { outcome: 'reply-empty', ...scores };
+    if (!this.ready || connection !== this.ws) return { outcome: 'stale', ...scores };
     const content = reply.trim().slice(0, 1800);
     this.send('message', { room_id: p.room_id, body: { text: content }, reply_to: { message_id: p.message_id } });
     this.lastReply = Date.now();
     this.context.push({ room: p.room_id, at: this.lastReply, role: 'assistant', content });
+    return { outcome: 'replied', ...scores };
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {
