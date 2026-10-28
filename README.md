@@ -61,7 +61,7 @@ curl "$BOT_URL/status" -H "Authorization: Bearer $BOT_ADMIN_TOKEN"
 
 KV key `personality:v1` stores only `{ version, at, cells }`. Durable Object storage holds enabled state, daily call counts, and alarm metadata. Source text, replies, names, user IDs, and content fingerprints are never intentionally written to storage or logs. Worker observability is disabled and code has no console logging. Raw text is sent transiently to inference providers. Apron's server can retain messages and the bot's posted replies under its own policy. Provider/account policies and legal exceptions still apply; numerical aggregation is not a formal anonymity or differential-privacy guarantee.
 
-Snapshots are written at most once every ten minutes, and on `/stop`, by one writer. KV is eventually consistent; a restart can lose recent observations or load a stale snapshot. This intentionally accepts approximate personality weights. Context and duplicate suppression reset on restart. 
+Snapshots are written at most once every ten minutes, and on `/stop`, by one writer. KV is eventually consistent; a restart can lose recent observations or load a stale snapshot. This intentionally accepts approximate personality weights. Context and duplicate suppression reset on restart.
 
 This implements community style. Facts, personal histories, and shared lore are not retained. Edits/deletions do not retroactively reverse aggregate contributions. Use only rooms whose members agree to this processing.
 
