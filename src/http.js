@@ -11,9 +11,35 @@ export function site(bot) {
     return missing();
   };
 }
+// Server-Sent Events from the log. At most 32 chunks wait unread; a client further behind is cut off
+// rather than buffered, and can catch up from /events.json.
+function stream(log, signal, every) {
+  const enc = new TextEncoder();
+  let stop;
+  return new ReadableStream({
+    start(c) {
+      let open = true;
+      const send = s => {
+        if (!open) return;
+        if (c.desiredSize <= 0) return stop();
+        c.enqueue(enc.encode(s));
+      };
+      const listener = e => send(`data: ${JSON.stringify(e)}\n\n`);
+      const timer = setInterval(() => send(': ping\n\n'), every);
+      stop = () => {
+        if (!open) return;
+        open = false; clearInterval(timer); log.unsubscribe(listener); signal.removeEventListener('abort', stop);
+        try { c.close(); } catch {}
+      };
+      log.subscribe(listener); signal.addEventListener('abort', stop);
+      send(': ping\n\n');
+    },
+    cancel() { stop(); },
+  }, new CountQueuingStrategy({ highWaterMark: 32 }));
+}
 // The admin portal. Writes require a same-origin form post, and each reports its outcome on the tab it came from.
-// saveApron(url, token) persists a new server and token.
-export function admin(bot, saveApron) {
+// saveApron(url, token) persists a new server and token; ping is the event stream's keepalive interval.
+export function admin(bot, saveApron, { ping = 25000 } = {}) {
   const tabOf = id => tabs.some(t => t.id === id) ? id : 'overview';
   const back = (tab, key, text) => new Response(null, { status: 303, headers: { Location: `/?tab=${tab}&${key}=${encodeURIComponent(text)}` } });
   const actions = {
@@ -39,8 +65,14 @@ export function admin(bot, saveApron) {
     },
     async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
   };
-  return async req => {
+  return async (req, server) => {
     const url = new URL(req.url), action = actions[url.pathname];
+    if (req.method === 'GET' && url.pathname === '/events.json') return Response.json(bot.log.list(Number(url.searchParams.get('since')) || 0));
+    if (req.method === 'GET' && url.pathname === '/events') {
+      // Bun closes a connection idle for 10 seconds, longer than a ping apart.
+      server?.timeout(req, 0);
+      return new Response(stream(bot.log, req.signal, ping), { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
+    }
     if (req.method === 'GET' && url.pathname === '/') {
       const tab = tabOf(url.searchParams.get('tab')), q = url.searchParams;
       const posts = tab === 'moderation' ? await bot.posts().catch(e => ({ error: e.message })) : null;
