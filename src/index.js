@@ -90,7 +90,7 @@ export class Bot extends DurableObject {
     url.protocol = 'https:';
     const res = await fetch(url, { headers: { Upgrade: 'websocket' }, signal: AbortSignal.timeout(15000) });
     const ws = res.webSocket;
-    if (!ws) throw Error('connect-failed');
+    if (!ws) throw Error(`connect-failed-${res.status}`);
     ws.accept(); this.ws = ws; this.waiting = new Map();
     let authorize, deny;
     this.authed = new Promise((a, d) => { authorize = a; deny = d; });
