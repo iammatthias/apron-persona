@@ -16,7 +16,7 @@ Then:
 
 ```sh
 ff-deploy apron-persona
-cat data/status.json
+add-site persona 8902   # homepage at persona.local
 ```
 
 Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40).

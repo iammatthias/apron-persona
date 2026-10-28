@@ -6,5 +6,8 @@ services:
     build: .
     restart: unless-stopped
     env_file: .env
+    ports:
+      # Caddy reaches the page at host.docker.internal; bind there only.
+      - "172.17.0.1:8902:8080"
     volumes:
       - ./data:/data

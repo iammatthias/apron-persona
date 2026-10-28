@@ -1,9 +1,10 @@
 import { renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { Bot } from './bot.js';
+import { page } from './page.js';
 const defaults = {
   APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona',
   DECISION_MODEL: 'openrouter/free', CHAT_MODEL: 'openrouter/free', DAILY_CALLS: '40', HALF_LIFE_DAYS: '30',
-  DATA_DIR: '/data',
+  DATA_DIR: '/data', PORT: '8080',
 };
 const env = { ...defaults, ...process.env };
 for (const k of ['APRON_TOKEN', 'OPENROUTER_API_KEY', 'HASH_SECRET']) if (!env[k]) throw Error(`missing ${k}`);
@@ -27,5 +28,14 @@ const tick = () => {
 };
 tick();
 setInterval(tick, 60000);
+Bun.serve({
+  port: +env.PORT,
+  fetch(req) {
+    const path = new URL(req.url).pathname;
+    if (path === '/status.json') return Response.json(bot.status());
+    if (path === '/') return new Response(page(env.BOT_NAME, bot.status()), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+    return new Response('Not found', { status: 404 });
+  },
+});
 const stop = () => { if (bot.dirty) bot.save(); bot.ws?.close(); process.exit(0); };
 process.on('SIGTERM', stop); process.on('SIGINT', stop);
