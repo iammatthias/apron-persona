@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { read, chunk, synthesize, reading, draft, average } from '../src/learn.js';
+import { read, chunk, synthesize, reading, draft, average, draftPrompt } from '../src/learn.js';
 import { Bot } from '../src/bot.js';
 import { settings } from '../src/settings.js';
 // A fake Apron server holding `log`: it greets, signs in, and pages history backwards with an inclusive `before`.
@@ -178,4 +178,11 @@ test('a job that cannot afford every call makes none, and a failure says why', a
   assert.equal(garbled.bot.log.list().at(-1).detail, 'invalid-reading');
   garbled.bot.discard();
   assert.equal(garbled.bot.learning, null);
+});
+test('the draft prompt never asks the bot to deny being an AI, and keeps room phrases and rules out of the persona', () => {
+  const system = draftPrompt(['casual'])[0].content;
+  assert.ok(!/never to say it'?s an AI|deny/i.test(system));
+  assert.ok(system.includes('not to announce being a bot'));
+  assert.ok(system.includes('no example phrases or words taken from the room'));
+  assert.ok(system.includes("Don't repeat these instructions or any rule in the persona."));
 });
