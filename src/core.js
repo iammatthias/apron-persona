@@ -69,3 +69,23 @@ export function incoming(p, self, bots, rooms) {
   if (typeof p.body?.text !== 'string' || !p.body.text.trim()) return 'empty';
   return null;
 }
+// How a message reaches the bot. Clients may add a mention to a reply, so with mentions off a reply still counts as one.
+export function addressing(s, mention, reply) {
+  if (mention && reply) return !s.reply_mentions && s.reply_replies ? 'reply' : 'mention';
+  return mention ? 'mention' : reply ? 'reply' : undefined;
+}
+const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
+// Whether the bot responds to one message, and the outcome with the bar, gap or wait that decided it. Before
+// classification (no reply_p) it returns null when the classifier must run, so organic adds no classifier calls:
+// only messages already eligible for learning are considered.
+export function trigger(s, { addressed, eligible, reply_p }, { now, lastReply, lastOrganic }) {
+  const open = !!addressed && s[gates[addressed]];
+  if (reply_p === undefined) return eligible || open ? null : { respond: null, outcome: addressed ? 'trigger-off' : 'rate-limited' };
+  if (addressed && !open) return { respond: null, outcome: 'trigger-off' };
+  if (!addressed && !s.organic) return { respond: null, outcome: 'learned-only' };
+  const need = addressed ? s.reply_threshold : s.organic_threshold;
+  if (reply_p < need) return { respond: null, outcome: addressed ? 'declined' : 'held-back', need };
+  if (!addressed && now - lastOrganic < s.organic_gap * 60000) return { respond: null, outcome: 'quiet-gap', ago: now - lastOrganic };
+  if (now - lastReply < s.cooldown * 1000) return { respond: null, outcome: 'cooldown', wait: s.cooldown };
+  return { respond: addressed ?? 'organic', outcome: addressed ? 'replied' : 'chimed-in' };
+}
