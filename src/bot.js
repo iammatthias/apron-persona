@@ -181,7 +181,7 @@ export class Bot {
       this.people.set(participant, now);
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
-    const scores = { learn: result.learn, reply: result.reply };
+    const scores = { learn_p: result.learn, reply_p: result.reply };
     if (!mentioned) return { outcome: 'learned-only', ...scores };
     if (result.reply < .7) return { outcome: 'declined', ...scores };
     if (now - this.lastReply < 15000) return { outcome: 'cooldown', ...scores };

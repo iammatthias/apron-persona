@@ -3,7 +3,7 @@ export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'mentioned', 'text', 'outcome', 'learn', 'reply', 'detail'] },
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'mentioned', 'text', 'outcome', 'learn_p', 'reply_p', 'detail'] },
   posted: { label: 'Posted a reply', fields: ['room', 'message_id', 'reply_to', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   settings: { label: 'Settings saved', fields: ['keys'] },

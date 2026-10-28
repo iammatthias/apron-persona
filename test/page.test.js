@@ -44,12 +44,12 @@ test('overview shows the last error and when, even while connected', () => {
 });
 test('the activity tab lists events with their labels and escaped fields', () => {
   const events = [
-    { at: Date.UTC(2026, 9, 28, 12, 0, 2), kind: 'message', room: 'general', message_id: '9', from: '<b>', mentioned: true, outcome: 'declined', learn: .9, reply: .4 },
+    { at: Date.UTC(2026, 9, 28, 12, 0, 2), kind: 'message', room: 'general', message_id: '9', from: '<b>', mentioned: true, outcome: 'declined', learn_p: .9, reply_p: .4 },
     { at: Date.UTC(2026, 9, 28, 12, 0, 1), kind: 'settings', keys: ['persona', 'paused'] },
     { at: Date.UTC(2026, 9, 28, 12, 0, 0), kind: 'auth-denied' },
   ];
   const html = portal({ ...ctx, tab: 'activity', events });
-  assert.ok(html.includes('<h3>Last 3 events</h3><dl><dt>2026-10-28 12:00:02 UTC</dt><dd>Mentioned; reply probability below 0.7<br><span class="note">room general · message_id 9 · from &#60;b&#62; · mentioned true · learn 0.9 · reply 0.4</span></dd>'
+  assert.ok(html.includes('<h3>Last 3 events</h3><dl><dt>2026-10-28 12:00:02 UTC</dt><dd>Mentioned; reply probability below 0.7<br><span class="note">room general · message_id 9 · from &#60;b&#62; · mentioned true · learn_p 0.9 · reply_p 0.4</span></dd>'
     + '<dt>2026-10-28 12:00:01 UTC</dt><dd>Settings saved<br><span class="note">keys persona, paused</span></dd><dt>2026-10-28 12:00:00 UTC</dt><dd>Token refused</dd></dl>'));
   assert.ok(portal({ ...ctx, tab: 'activity', events: [] }).includes('<p>Nothing yet since the bot started.</p>'));
 });
