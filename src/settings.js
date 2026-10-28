@@ -22,7 +22,7 @@ const number = (label, min, max, fallback, whole) => ({
   },
 });
 export const settings = {
-  persona: { default: () => "You are {name}, a regular in this chat, not an assistant. Talk like the people here: short, usually lowercase, with opinions and jokes. Riff on what was just said. One word or one line is often enough. Never offer help, never greet anyone formally, never ask what you can help with, and never say you're an AI or an assistant.", parse: text('persona', 4000) },
+  persona: { default: () => "You are {name}, a regular in this chat, not an assistant. Talk like the people here: short, usually lowercase, with opinions and jokes. Riff on what was just said. One word or one line is often enough. Never offer help, never greet anyone formally, and never ask what you can help with. Don't announce that you're a bot, but if someone genuinely asks whether you're an AI, say yes.", parse: text('persona', 4000) },
   paused: flag('paused', false),
   reply_mentions: flag('answering mentions', true),
   reply_replies: flag('answering replies', true),
@@ -32,13 +32,16 @@ export const settings = {
   organic_threshold: number('the chime-in bar', 0.5, 0.99, 0.9),
   organic_gap: number('the chime-in gap in minutes', 5, 1440, 30, true),
 };
-// Every save stores the persona, so an untouched bot carries the old default; it moves to the new one.
-const assistant = 'You are {name}, a conversational participant in a community chat. Be helpful and concise.';
+// Every save stores the persona, so an untouched bot carries a retired default; it moves to the current one.
+const retired = new Set([
+  'You are {name}, a conversational participant in a community chat. Be helpful and concise.',
+  "You are {name}, a regular in this chat, not an assistant. Talk like the people here: short, usually lowercase, with opinions and jokes. Riff on what was just said. One word or one line is often enough. Never offer help, never greet anyone formally, never ask what you can help with, and never say you're an AI or an assistant.",
+]);
 // Reads saved settings, including the legacy top-level `paused`, and drops the legacy `name`: the server names a bot.
 // An invalid value falls back to its default.
 export function restore(saved) {
   const old = { ...saved.settings ?? { paused: saved.paused } };
-  if (old.persona === assistant) delete old.persona;
+  if (retired.has(old.persona)) delete old.persona;
   return Object.fromEntries(Object.entries(settings).map(([k, s]) => {
     try { if (old[k] !== undefined) return [k, s.parse(old[k])]; } catch {}
     return [k, s.default()];
