@@ -77,7 +77,8 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       const tab = tabOf(url.searchParams.get('tab')), q = url.searchParams;
       const posts = tab === 'moderation' ? await bot.posts().catch(e => ({ error: e.message })) : null;
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
-      return html(portal({ tab, name: bot.name, status: bot.status(), settings: bot.settings, limit: bot.env.DAILY_CALLS, details: bot.details(), url: bot.env.APRON_URL, posts, flash }));
+      const events = tab === 'activity' ? bot.log.list().slice(-50).reverse() : null;
+      return html(portal({ tab, name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, limit: bot.env.DAILY_CALLS, details: bot.details(), url: bot.env.APRON_URL, posts, events, flash }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });

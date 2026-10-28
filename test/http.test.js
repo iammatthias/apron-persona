@@ -61,3 +61,11 @@ test('a stream nobody reads is cut off instead of buffering', async () => {
   assert.equal(chunks.length, 32);
   assert.equal(chunks[31], `data: ${JSON.stringify(bot.log.list()[30])}\n\n`);
 });
+test('the activity tab shows the newest 50 events first, and the overview the last error', async () => {
+  const { bot, admin } = listeners();
+  for (let i = 0; i < 60; ++i) bot.fail(`e${i}`);
+  const html = await (await get(admin, '/?tab=activity')).text();
+  assert.ok(html.includes('<h3>Last 50 events</h3>'));
+  assert.deepEqual([...html.matchAll(/code (e\d+)/g)].map(m => m[1]).filter((_, i) => i < 2 || i > 47), ['e59', 'e58', 'e11', 'e10']);
+  assert.ok((await (await get(admin, '/')).text()).includes('last error e59 at '));
+});

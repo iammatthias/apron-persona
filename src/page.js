@@ -1,5 +1,7 @@
 import { promptParts } from './settings.js';
+import { label } from './events.js';
 const escape = s => String(s).replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
+const when = at => new Date(at).toISOString().slice(0, 19).replace('T', ' ') + ' UTC';
 const css = `:root{color-scheme:light dark;--fg:#1a1a1a;--muted:#777;--bg:#fafaf7;--accent:#3a7d5c;--bad:#b3261e;--line:color-mix(in srgb,var(--fg) 14%,transparent);--card:color-mix(in srgb,var(--fg) 3%,var(--bg))}
 @media(prefers-color-scheme:dark){:root{--fg:#e8e8e3;--muted:#999;--bg:#151515;--accent:#6fbf94;--bad:#f2867d}}
 *{box-sizing:border-box}
@@ -64,11 +66,12 @@ const post = (tab, action, inner) =>
 const card = (title, body, cls = '') => `<section class="card${cls}"><h3>${title}</h3>${body}</section>`;
 export const tabs = [
   { id: 'overview', title: 'Overview', render: overview },
+  { id: 'activity', title: 'Activity', render: ({ events }) => activity(events) },
   { id: 'persona', title: 'Persona', render: persona },
   { id: 'moderation', title: 'Moderation', render: ({ posts }) => feed(posts) },
   { id: 'connection', title: 'Connection', render: ({ url }) => connection(url) },
 ];
-// The private admin portal; ctx is { tab, name, status, settings, limit, details, url, posts, flash }.
+// The private admin portal; ctx is { tab, name, status, lastError, settings, limit, details, url, posts, events, flash }.
 export function portal(ctx) {
   const tab = tabs.find(t => t.id === ctx.tab) ?? tabs[0];
   const nav = tabs.map(t => `<a href="/?tab=${t.id}"${t === tab ? ' aria-current="page"' : ''}>${t.title}</a>`).join('');
@@ -77,11 +80,11 @@ export function portal(ctx) {
 <main>${flash(ctx.flash)}${tab.render(ctx)}</main>
 </div>`, '', ' class="admin"');
 }
-function overview({ status, limit, details }) {
+function overview({ status, lastError, limit, details }) {
   const toggle = post('overview', '/settings', `<input type="hidden" name="paused" value="${status.paused ? 'off' : 'on'}"><button class="primary">${status.paused ? 'Resume' : 'Pause'}</button>`);
   return `<h2>Overview</h2><div class="grid">
 ${card('Status', `<p class="big">${dot(status)}${state(status)}</p>
-<p class="note">${status.server ? `${escape(status.server.host)} · ${escape(status.server.user_id)}` : 'not signed in'}<br>${status.budget.calls} of ${escape(limit)} calls today</p>
+<p class="note">${status.server ? `${escape(status.server.host)} · ${escape(status.server.user_id)}` : 'not signed in'}<br>${status.budget.calls} of ${escape(limit)} calls today${lastError ? `<br>last error ${escape(lastError.code)} at ${when(lastError.at)}` : ''}</p>
 <div class="bar">${toggle}<span>${status.paused ? 'Not reading or replying.' : 'Reading the room; replies when mentioned.'}</span></div>`)}
 ${card('Learned traits', meters(status.personality))}
 ${server(details)}
@@ -109,6 +112,12 @@ function connection(url) {
   return `<h2>Connection</h2>${card('Apron server', post('connection', '/apron', `<label>Server<input name="url" value="${escape(url)}" required></label>
 <label>Bot token<input name="token" type="password" autocomplete="off" placeholder="apron_bot_…" required></label>
 <div class="bar"><button class="primary">Save and reconnect</button><span>The token is never shown.</span></div>`), ' narrow')}`;
+}
+// Newest first; message events show their outcome's label.
+function activity(events) {
+  const fields = ({ at, kind, outcome, ...rest }) => Object.entries(rest).map(([k, v]) => `${escape(k)} ${escape(Array.isArray(v) ? v.join(', ') : v)}`).join(' · ');
+  const rows = events.map(e => `<dt>${when(e.at)}</dt><dd>${escape(label(e))}${fields(e) ? `<br><span class="note">${fields(e)}</span>` : ''}</dd>`).join('');
+  return `<h2>Activity</h2>${card(`Last ${events.length} events`, rows ? `<dl>${rows}</dl>` : '<p>Nothing yet since the bot started.</p>')}`;
 }
 function flash(f) {
   if (!f) return '';
