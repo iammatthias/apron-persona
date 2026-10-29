@@ -388,7 +388,16 @@ test('a chime-in posts a plain message, records it as posted, and keeps the text
   assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${f.ws.sent.at(-1).id}`, organic: true, text: 'the broth is the point' });
   assert.ok(f.bot.own.has(posted.message_id));
 });
-test('organic is held back below its bar, quiet within its gap, and costs no extra classifier call', async () => {
+test('a room where one person does the talking gets a chime-in at most once per four of their messages', async () => {
+  // learn .5 keeps the sender eligible, so each message is sized up and only the chime-in rule decides.
+  const f = connected(model({ scores: { learn: .5, reply: .95, point: .95 } }));
+  f.bot.configure({ organic: 'on' });
+  const outcomes = [];
+  for (let i = 1; i <= 9; ++i) outcomes.push((await deliver(f, {}, `thought ${i}`))[0].outcome);
+  assert.deepEqual(outcomes, ['chimed-in', 'spoke-last', 'spoke-last', 'spoke-last', 'chimed-in', 'spoke-last', 'spoke-last', 'spoke-last', 'chimed-in']);
+  assert.equal(posts(f.ws).length, 3);
+});
+test('organic is held back below its bar, waits four messages after a post, and costs no extra classifier call', async () => {
   const count = async organic => {
     let calls = 0;
     const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++calls; return model({ scores: { reply: .8 } })(url, init); });
@@ -406,7 +415,10 @@ test('organic is held back below its bar, quiet within its gap, and costs no ext
   assert.equal(quiet.outcome, 'spoke-last');
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
   assert.equal(posts(f.ws).length, 1);
-  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'third'))[0].outcome, 'chimed-in');
+  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'third'))[0].outcome, 'spoke-last');
+  assert.equal((await deliver(f, { from: { user_id: 'finn' } }, 'fourth'))[0].outcome, 'spoke-last');
+  assert.equal(posts(f.ws).length, 1);
+  assert.equal((await deliver(f, { from: { user_id: 'gina' } }, 'fifth'))[0].outcome, 'chimed-in');
   assert.equal(posts(f.ws).length, 2);
 });
 test('a welcome chime-in with nothing specific to add stays quiet and keeps no text', async () => {

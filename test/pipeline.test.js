@@ -318,7 +318,7 @@ test('a second sender waits for the reply in flight, then is answered', async ()
   assert.deepEqual(r.posts().map(p => [p.body.text, p.reply_to.message_id]), [['hi carol', 'm1'], ['hi dave', 'm2']]);
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), ['replied', 'replied']);
 });
-test('a chime-in waits while the bot spoke last, and goes ahead once someone else has spoken', async () => {
+test('after a chime-in, three messages from others pass with no draft or history read, and the fourth may get one', async () => {
   const r = rig();
   r.bot.configure({ organic: 'on' });
   r.crowd();
@@ -328,17 +328,19 @@ test('a chime-in waits while the bot spoke last, and goes ahead once someone els
   r.calls[1].answer(content('the broth is the point'));
   await r.settle();
   assert.equal(r.last().outcome, 'chimed-in');
-  await r.say('I have, it was fine');
-  assert.deepEqual([r.roles().length, r.history()], [3, 1]);
-  r.calls[2].answer(judged({ reply: .95, point: .95 }));
-  await r.settle();
-  assert.deepEqual([r.last().outcome, r.posts().length], ['spoke-last', 1]);
-  await r.say('the gyoza though');
-  r.calls[3].answer(judged({ reply: .95, point: .95 }));
+  for (const [i, text] of ['I have, it was fine', 'the gyoza though', 'overpriced'].entries()) {
+    await r.say(text);
+    assert.deepEqual([r.roles().length, r.history()], [3 + i, 1], text);
+    r.calls[2 + i].answer(judged({ reply: .95, point: .95 }));
+    await r.settle();
+    assert.deepEqual([r.last().outcome, r.posts().length], ['spoke-last', 1], text);
+  }
+  await r.say('the broth was thin honestly');
+  r.calls[5].answer(judged({ reply: .95, point: .95 }));
   await r.timers.tick(0);
-  r.calls[4].answer(content('gyoza carried it'));
+  r.calls[6].answer(content('thin broth is a crime'));
   await r.settle();
-  assert.deepEqual([r.last().outcome, r.posts().length], ['chimed-in', 2]);
+  assert.deepEqual([r.last().outcome, r.posts().length, r.history()], ['chimed-in', 2, 2]);
 });
 test('a chime-in is judged first, and only a yes starts the draft and the typing notice', async () => {
   const r = rig();
