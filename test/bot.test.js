@@ -326,6 +326,23 @@ test('connection, auth, settings, deletes and errors are recorded', async () => 
   assert.equal(f.bot.lastError.code, 'apron-auth-denied');
 });
 const posts = ws => ws.sent.filter(f => f.method === 'message').map(f => f.params);
+// While the server is unreachable, each tick's attempt dies before sign-in; only the connection that was up was lost.
+test('an attempt that dies before sign-in is not another lost connection', () => {
+  const sockets = [];
+  const bot = new Bot({ ...env, APRON_URL: 'wss://apron.test/' }, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; } });
+  bot.tick();
+  sockets[0].emit({ method: 'server', params: {} });
+  sockets[0].emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  sockets[0].close();
+  bot.tick(); sockets[1].close();
+  bot.tick(); sockets[2].close();
+  assert.equal(sockets.length, 3);
+  assert.deepEqual(bot.log.list().map(({ at, ...e }) => e), [
+    { kind: 'connected', host: 'apron.test', user_id: 'bot_me' },
+    { kind: 'disconnected', reason: 'close-1006' },
+  ]);
+  assert.equal(bot.status().connected, false);
+});
 // The server may send a new `server` frame at any time, and it answers a repeated auth id with the first result.
 test('a later server frame replaces the greeting without signing in or connecting again', () => {
   const ws = socket(), you = { user_id: 'bot_me', name: 'Persona' };
