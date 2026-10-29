@@ -273,6 +273,30 @@ test('a burst whose later messages arrive before the first is drafted costs no c
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['b1', 'superseded'], ['b2', 'superseded'], ['m1', 'replied']]);
   assert.deepEqual(r.posts().map(p => p.reply_to.message_id), ['m1']);
 });
+test('a burst that talks over every draft spends twelve calls, then rests; the owner\'s is answered once, to the latest', async () => {
+  const r = rig();
+  const carol = { from: { user_id: 'carol' } };
+  // Each message lands while the last one's draft is in flight, so each draft started is talked over by the next.
+  for (let i = 1; i <= 6; ++i) await r.say(`part ${i} @bot_me`, carol);
+  // Two at once: the first is not the newest when its turn comes, so it is superseded outright, not rested.
+  r.ws.emit({ method: 'message', params: { room_id: 'general', message_id: 'b7', from: { user_id: 'carol' }, body: { text: 'part 7 @bot_me' } } });
+  await r.say('part 8 @bot_me', carol);
+  await r.say('part 9 @bot_me', carol);
+  await r.say('part 10 @bot_me', carol);
+  assert.deepEqual(r.roles(), Array(6).fill(['judge', 'compose']).flat());
+  await r.settle();
+  assert.deepEqual(r.posts(), []);
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), [...Array(7).fill('superseded'), 'looping', 'looping', 'looping']);
+  assert.equal(r.timers.pending(), 0);
+  const o = rig();
+  const owner = { from: { user_id: 'me' } };
+  for (let i = 1; i <= 10; ++i) await o.say(`part ${i} @bot_me`, owner);
+  assert.equal(o.calls.length, 20);
+  o.calls[18].answer(judged()); o.calls[19].answer(content('all ten, got it'));
+  await o.settle();
+  assert.deepEqual(o.posts(), [{ room_id: 'general', body: { text: 'all ten, got it' }, reply_to: { message_id: 'm10' } }]);
+  assert.deepEqual(o.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), [...Array(9).fill('superseded'), 'replied']);
+});
 test('an untagged follow-up sent while the bot drafts is answered after the first reply, not superseded by it', async () => {
   const r = rig();
   const carol = { from: { user_id: 'carol' } };
