@@ -48,6 +48,26 @@ test('unaddressed messages: organic switch, then its bar, then whether the bot s
   assert.deepEqual(decide(on, .95, false), { respond: 'organic', outcome: 'chimed-in' });
   assert.deepEqual(decide(on, .5, true), { respond: null, outcome: 'held-back', need: .9 });
 });
+test('after six of its posts to one sender with nobody else speaking, the bot rests: no answer, no chime-in, no draft', () => {
+  const decide = (addressed, turns, s = {}) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p: .95, point_p: .95, spokeLast: false, turns });
+  for (const addressed of ['mention', 'reply']) {
+    assert.deepEqual(decide(addressed, undefined), { respond: addressed, outcome: 'replied' });
+    assert.deepEqual(decide(addressed, 5), { respond: addressed, outcome: 'replied' });
+    assert.deepEqual(decide(addressed, 6), { respond: null, outcome: 'looping' });
+    assert.deepEqual(decide(addressed, 40), { respond: null, outcome: 'looping' });
+  }
+  assert.deepEqual(decide(undefined, 5), { respond: 'organic', outcome: 'chimed-in' });
+  assert.deepEqual(decide(undefined, 6), { respond: null, outcome: 'looping' });
+  // A setting that is off is the standing reason; the rest applies only where the bot would otherwise speak.
+  assert.deepEqual(decide(undefined, 6, { organic: false }), { respond: null, outcome: 'learned-only' });
+  assert.deepEqual(decide('mention', 6, { reply_mentions: false }), { respond: null, outcome: 'trigger-off' });
+  // Resting, a sender's message is not sized up either unless there is something to learn from it.
+  assert.equal(trigger(base, { addressed: 'mention', eligible: true, turns: 6 }), null);
+  assert.equal(trigger(base, { addressed: 'mention', eligible: false, turns: 5 }), null);
+  assert.deepEqual(trigger(base, { addressed: 'mention', eligible: false, turns: 6 }), { respond: null, outcome: 'looping' });
+  assert.deepEqual(trigger({ ...base, reply_mentions: false }, { addressed: 'mention', eligible: false, turns: 6 }), { respond: null, outcome: 'trigger-off' });
+  assert.deepEqual(trigger({ ...base, organic: true }, { addressed: undefined, eligible: false, turns: 6 }), { respond: null, outcome: 'rate-limited' });
+});
 test('a chime-in also needs a point that clears the same bar; mentions and replies never ask for one', () => {
   const decide = (s, addressed, reply_p, point_p, spokeLast) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p, point_p, spokeLast });
   assert.deepEqual(decide({}, undefined, .95, .9), { respond: 'organic', outcome: 'chimed-in' });

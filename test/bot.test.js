@@ -557,6 +557,45 @@ test('alone with the bot, or just answered by it, a sender is talking to it', as
   const followup = await deliver(crowd, { from: { user_id: 'carol' } }, 'and what about dinner');
   assert.equal(followup[0].addressed, 'mention');
 });
+// A sender's reply to the bot's latest post, as a peer bot's would be.
+const replyTo = (f, user_id, text) => deliver(f, { from: { user_id }, reply_to: { message_id: f.bot.log.list().findLast(e => e.kind === 'posted').message_id } }, text);
+test('a sender the bot has answered six times with nobody else speaking gets a rest, and the bot picks up once someone else speaks', async () => {
+  let calls = 0;
+  const f = connected(async (...a) => { ++calls; return model()(...a); });
+  const outcomes = [(await deliver(f, { from: { user_id: 'dave' } }, 'hey @bot_me'))[0].outcome];
+  for (let i = 1; i <= 6; ++i) outcomes.push((await replyTo(f, 'dave', `and then ${i}`))[0].outcome);
+  assert.deepEqual(outcomes, ['replied', 'replied', 'replied', 'replied', 'replied', 'replied', 'looping']);
+  assert.deepEqual([posts(f.ws).length, calls], [6, 12]);
+  const mine = f.bot.log.list().findLast(e => e.kind === 'posted').message_id;
+  assert.deepEqual(await replyTo(f, 'dave', 'hello?'), [{ room: 'general', message_id: 'this', reply_to: mine, from: 'dave', addressed: 'reply', outcome: 'looping' }]);
+  assert.equal(calls, 12);
+  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'what did I miss'))[0].outcome, 'learned-only');
+  assert.equal((await replyTo(f, 'dave', 'erin, nothing'))[0].outcome, 'replied');
+  assert.deepEqual([posts(f.ws).length, calls], [7, 15]);
+});
+test("the bot's owner is never rested, however long they keep talking to it alone", async () => {
+  const f = connected(model());
+  assert.equal(f.bot.owner, 'me');
+  const outcomes = [(await deliver(f, { from: { user_id: 'me' } }, 'hey @bot_me'))[0].outcome];
+  for (let i = 1; i <= 8; ++i) outcomes.push((await replyTo(f, 'me', `more ${i}`))[0].outcome);
+  assert.deepEqual(outcomes, Array(9).fill('replied'));
+  assert.equal(posts(f.ws).length, 9);
+});
+test('the owner is who the server says, or failing that whoever the bot_ prefix names', () => {
+  const named = fixture(model());
+  named.bot.tick(); named.ws.emit({ method: 'server', params: {} });
+  named.ws.emit({ id: 'auth', result: { you: { user_id: 'bot_legacy_id', name: 'Persona', owner: 'alice' } } });
+  assert.equal(named.bot.owner, 'alice');
+  const { bot } = fixture(model());
+  assert.equal(bot.owner, undefined);
+  bot.tick(); bot.ws.emit({ method: 'server', params: {} });
+  bot.ws.emit({ id: 'auth', result: { you: { user_id: 'persona', name: 'Persona' } } });
+  assert.equal(bot.owner, undefined);
+  bot.use('wss://other.test/', 'apron_bot_x');
+  bot.ws.emit({ method: 'server', params: {} });
+  bot.ws.emit({ id: 'auth', result: { you: { user_id: 'bot_guest_1', name: 'Bot of guest_1' } } });
+  assert.equal(bot.owner, 'guest_1');
+});
 test('who spoke when is forgotten after the windows it serves', async () => {
   const f = connected(model());
   f.bot.heard.set('general', new Map([['old', Date.now() - 31 * 60000], ['zed', Date.now()]]));
