@@ -16,9 +16,9 @@ const bot = new Bot(env, store);
 let last;
 const tick = () => {
   bot.tick();
+  // A refused status write is recorded and skipped: the minute timer must not take the bot down.
+  try { write('status.json', bot.status()); } catch { bot.fail('status-refused'); }
   const status = bot.status();
-  // A refused status write is logged and skipped: the minute timer must not take the bot down.
-  try { write('status.json', status); } catch { status.error = 'status-refused'; }
   const line = status.connected ? 'connected' : status.error ?? 'connecting';
   if (line !== last) console.log(`apron-persona: ${last = line}`);
 };

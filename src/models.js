@@ -15,8 +15,8 @@ export function table(env) {
   return { judge: head(roles.judge, env.DECISION_MODEL), compose: head(roles.compose, env.CHAT_MODEL), learn: head(roles.learn, env.CHAT_MODEL) };
 }
 export const real = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: id => clearTimeout(id) };
-// Asks a role's models until one answer passes `parse`, which returns the value or throws. send(body, signal) makes one
-// request and resolves to the response data; a request that fails, times out or returns an answer parse() rejects
+// Asks a role's models until one answer passes `parse`, which returns the value or throws. send(body, signal, why) makes one
+// request, why being 'first', 'failover' or 'hedge', and resolves to the response data; a request that fails, times out or returns an answer parse() rejects
 // hands over to the next model at once, and one still unanswered at the hedge delay is raced against the next model
 // while afford() allows another request, and raced() is told so. The first answer wins and the rest are aborted.
 // Resolves { value, model }, where model is the one that answered (the router names the model it chose); rejects
@@ -44,7 +44,7 @@ export function ask({ chain, timeout, hedge, reasoning }, body, parse, { send, a
       live.add(stop);
       // A chain's tail goes along as OpenRouter's own fallbacks, so a model it can't serve is skipped without a round trip.
       const rest = chain.slice(next - 1);
-      send({ ...body, model, ...rest.length > 1 ? { models: rest } : {}, reasoning }, control.signal)
+      send({ ...body, model, ...rest.length > 1 ? { models: rest } : {}, reasoning }, control.signal, why)
         .then(data => ({ value: parse(data), model: typeof data?.model === 'string' ? data.model.slice(0, 100) : model }))
         .then(answer => { live.delete(stop); timers.clearTimeout(timer); finish(null, answer); }, e => {
           live.delete(stop); timers.clearTimeout(timer);

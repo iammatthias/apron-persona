@@ -23,6 +23,8 @@ export class Bot {
     const ok = (key, value) => fits(schemas['state.json'].fields[key], value);
     this.state = ok('personality', saved.personality) ? saved.personality : fresh();
     this.budget = ok('budget', saved.budget) ? saved.budget : { day: '', calls: 0 };
+    // A state.json from before the counter has none, so the day's earlier calls stay unsorted.
+    this.spent = ok('spent', saved.spent) ? saved.spent : {};
     this.settings = restore(saved);
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
@@ -31,7 +33,7 @@ export class Bot {
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
   save() {
-    try { this.store.save({ personality: this.state, budget: this.budget, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) }); }
+    try { this.store.save({ personality: this.state, budget: this.budget, spent: this.spent, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) }); }
     catch { this.fail('state-refused'); }
     this.dirty = false;
   }
@@ -230,29 +232,32 @@ export class Bot {
     for (const map of [this.seen, this.people]) for (const [k, v] of map) if (now - v > TTL) map.delete(k);
     while (this.seen.size > 512) this.seen.delete(this.seen.keys().next().value);
   }
-  // Calls left today.
+  // Calls left today. spent sorts the same day's calls by role: every request, and which of them were hedges or retries.
   left() {
     const day = new Date().toISOString().slice(0, 10);
-    if (this.budget.day !== day) this.budget = { day, calls: 0 };
+    if (this.budget.day !== day) { this.budget = { day, calls: 0 }; this.spent = {}; }
     return +this.env.DAILY_CALLS - this.budget.calls;
   }
   // One request to OpenRouter, counted against the day's calls before it is sent. An endpoint that refuses to have
   // its thinking turned off ("Reasoning is mandatory") is asked again at once with the thinking merely hidden.
-  async api(body, signal) {
+  async api(role, body, signal, why = 'first') {
     if (this.left() <= 0) throw Error('budget');
-    ++this.budget.calls; this.save();
+    const s = this.spent[role] ??= { calls: 0, hedges: 0, retries: 0 };
+    ++this.budget.calls; ++s.calls;
+    if (why === 'hedge') ++s.hedges; else if (why !== 'first') ++s.retries;
+    this.save();
     const res = await this.request('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, provider: { data_collection: 'deny' } }),
     });
-    if (res.status === 400 && body.reasoning?.enabled === false && /reasoning/i.test(await res.text())) return this.api({ ...body, reasoning: { exclude: true } }, signal);
+    if (res.status === 400 && body.reasoning?.enabled === false && /reasoning/i.test(await res.text())) return this.api(role, { ...body, reasoning: { exclude: true } }, signal, 'reask');
     if (!res.ok) throw Error(`inference-${res.status}`);
     return res.json();
   }
   // Asks the models of one role, in the table's order, while the day's calls last; raced() hears of a hedge.
   ask(role, body, parse, signal, raced) {
-    return models.ask(this.models[role], body, parse, { send: (b, s) => this.api(b, s), afford: () => this.left() > 0, raced, signal, timers: this.timers });
+    return models.ask(this.models[role], body, parse, { send: (b, s, why) => this.api(role, b, s, why), afford: () => this.left() > 0, raced, signal, timers: this.timers });
   }
   // What became of one message that passed incoming(): an outcome, the classifier's probabilities once known, and the
   // time each stage took. Everything the message starts stops when it is settled or when the deadline or the

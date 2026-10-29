@@ -1,5 +1,6 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { axes, topics } from './core.js';
+import { roles } from './models.js';
 // What never reaches DATA_DIR, and why. The schemas below leave no slot for any of it.
 export const never = {
   'message text': 'people talk to each other in the room, not to a record',
@@ -24,6 +25,8 @@ const bucket = object({
 const state = object({
   personality: object({ version: count, at: number, cells: map(string(/^[0-4]{4}$/, 4), number) }),
   budget: object({ day: v => v === '' || date(v), calls: count }),
+  // budget.day's calls by role; hedges and retries are among each role's calls.
+  spent: map(one(Object.keys(roles)), object({ calls: count, hedges: count, retries: count })),
   settings: object({
     persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
     organic: boolean, organic_threshold: number, norms: map(room, owner(1000)),

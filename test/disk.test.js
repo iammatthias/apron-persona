@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { check, disk } from '../src/disk.js';
 import { restore } from '../src/settings.js';
-const state = { personality: { version: 1, at: 5, cells: { '2222': .5 } }, budget: { day: '2026-10-29', calls: 3 }, settings: restore({}), memory: { rooms: { general: { days: { '2026-10-29': { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 } }, learned: 1, lean: [.25, 0, 0, -.25] } }, weeks: {} } }, pages: {} } };
+const state = { personality: { version: 1, at: 5, cells: { '2222': .5 } }, budget: { day: '2026-10-29', calls: 3 }, spent: { judge: { calls: 2, hedges: 1, retries: 0 }, compose: { calls: 1, hedges: 0, retries: 0 } }, settings: restore({}), memory: { rooms: { general: { days: { '2026-10-29': { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 } }, learned: 1, lean: [.25, 0, 0, -.25] } }, weeks: {} } }, pages: {} } };
 const status = { connected: true, paused: false, error: null, server: { host: 'server.apron.chat', agent: 'apron 0.4', user_id: 'bot_me' }, budget: { day: '', calls: 0 }, personality: { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 } };
 test('state, status and apron files pass when they hold only their allowed keys and types', () => {
   assert.equal(check('state.json', state), state);
@@ -20,7 +20,9 @@ test('an injected field, a wrong type or free text outside the owner settings is
   refused('state.json', { ...state, settings: { ...state.settings, paused: 'yes' } }, 'refused to store state.json.settings.paused');
   refused('state.json', { ...state, personality: { ...state.personality, cells: { 'hey canary': 1 } } }, 'refused to store a key in state.json.personality.cells');
   refused('state.json', { ...state, budget: { day: 'hey canary', calls: 1 } }, 'refused to store state.json.budget.day');
-  refused('state.json', { personality: state.personality, budget: state.budget }, 'refused to store state.json.settings');
+  refused('state.json', { personality: state.personality, budget: state.budget }, 'refused to store state.json.spent');
+  refused('state.json', { ...state, spent: { carol: { calls: 1, hedges: 0, retries: 0 } } }, 'refused to store a key in state.json.spent');
+  refused('state.json', { ...state, spent: { judge: { calls: 1, hedges: 0, retries: 0, text: 'hey canary' } } }, 'refused to store state.json.spent.judge.text');
   refused('state.json', [], 'refused to store state.json');
   const day = state.memory.rooms.general.days['2026-10-29'];
   const room = days => ({ ...state, memory: { rooms: { general: { days, weeks: {} } }, pages: {} } });

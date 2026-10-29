@@ -33,7 +33,7 @@ test('daily budget prevents an upstream request', async () => {
   let requested = false;
   const { bot } = fixture(async () => { requested = true; });
   bot.budget = { day: new Date().toISOString().slice(0, 10), calls: 40 };
-  await assert.rejects(bot.api({}), /budget/);
+  await assert.rejects(bot.api('judge', {}), /budget/);
   assert.equal(requested, false);
 });
 test('authenticates silently and replies only to a mention', async () => {
@@ -137,7 +137,7 @@ test('a legacy state.json with top-level name and paused migrates into settings'
   assert.deepEqual(bot.settings, { ...defaults, paused: true });
   bot.save();
   assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
-  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { ...defaults, paused: true }, memory: { rooms: {}, pages: {} } });
+  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, spent: {}, settings: { ...defaults, paused: true }, memory: { rooms: {}, pages: {} } });
   const broken = fixture(undefined, () => ({ personality, memory: { rooms: { general: { days: { yesterday: 'carol said hi' }, weeks: {} } } } }));
   assert.deepEqual(broken.bot.memory, { rooms: {}, pages: {} });
 });
@@ -517,6 +517,15 @@ test('a state.json section that would not pass the write check loads as its defa
   assert.deepEqual(bot.budget, { day: '', calls: 0 });
   assert.deepEqual(Object.keys(bot.memory.rooms.general.days), [today]);
   assert.deepEqual(bot.memory.rooms.general.weeks, {});
+});
+test('a state.json from before calls were sorted by role loads with the day\'s calls intact and saves the counter', () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const { bot, saved } = fixture(undefined, () => ({ personality: { version: 1, at: 0, cells: {} }, budget: { day, calls: 30 }, settings: defaults, memory: { rooms: {}, pages: {} } }));
+  assert.deepEqual([bot.budget, bot.spent], [{ day, calls: 30 }, {}]);
+  bot.save();
+  assert.deepEqual(JSON.parse(saved[0]).spent, {});
+  const bad = fixture(undefined, () => ({ budget: { day, calls: 3 }, spent: { judge: { calls: 3, hedges: 0, retries: 0 }, carol: { calls: 1, hedges: 0, retries: 0 } } }));
+  assert.deepEqual([bad.bot.budget, bad.bot.spent], [{ day, calls: 3 }, {}]);
 });
 test('a state.json from before the clock guards went loads without them and saves cleanly', () => {
   const personality = { version: 1, at: 0, cells: {} };

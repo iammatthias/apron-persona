@@ -81,6 +81,7 @@ test('a judge that times out on both models still lets the reply go, unsized, wi
   assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', detail: 'timeout', via: { compose: 'c' }, hedged: ['judge'] });
   assert.deepEqual(r.posts().map(p => p.body.text), ['yo']);
   assert.equal(r.bot.budget.calls, 3);
+  assert.deepEqual(r.bot.spent, { compose: { calls: 1, hedges: 0, retries: 0 }, judge: { calls: 2, hedges: 1, retries: 0 } });
 });
 test('a slow draft is hedged on the next model, the first answer posts, the loser is aborted, and every request counts', async () => {
   const r = rig();
@@ -95,6 +96,7 @@ test('a slow draft is hedged on the next model, the first answer posts, the lose
   assert.equal(r.sent('compose')[0].aborted, 'lost');
   assert.deepEqual(r.posts().map(p => p.body.text), ['late but first']);
   assert.deepEqual([r.last().via, r.last().hedged, r.bot.budget.calls], [{ judge: 'd', compose: 'some/router-pick' }, ['compose'], 3]);
+  assert.deepEqual(r.bot.spent, { judge: { calls: 1, hedges: 0, retries: 0 }, compose: { calls: 2, hedges: 1, retries: 0 } });
 });
 test('no hedge is sent when the day\'s calls are spent, and the first model is still waited for', async () => {
   const r = rig({ calls: '2' });
@@ -241,11 +243,13 @@ test('an endpoint that insists on thinking is asked again with it hidden, and th
   r.calls[2].answer(judged()); r.calls[3].answer(content('yo'));
   await r.settle();
   assert.deepEqual([r.last().outcome, r.last().via, r.bot.budget.calls, r.posts().length], ['replied', { judge: 'd', compose: 'c' }, 4, 1]);
+  assert.deepEqual(r.bot.spent, { judge: { calls: 2, hedges: 0, retries: 1 }, compose: { calls: 2, hedges: 0, retries: 1 } });
   const other = rig();
   await other.say('hey @bot_me');
   other.calls[0].fail(400, 'max_tokens too large'); other.calls[1].fail(400, 'max_tokens too large');
   await other.flush();
   assert.deepEqual(other.calls.slice(2).map(c => c.body.model), ['openrouter/free', 'openrouter/free']);
+  assert.deepEqual(other.bot.spent, { judge: { calls: 2, hedges: 0, retries: 1 }, compose: { calls: 2, hedges: 0, retries: 1 } });
 });
 test('a second sender waits for the reply in flight, then is answered', async () => {
   const r = rig();

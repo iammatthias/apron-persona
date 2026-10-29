@@ -9,9 +9,9 @@ const text = data => { const s = data?.choices?.[0]?.message?.content; if (typeo
 // A transport whose requests the test settles by hand; each records its body and whether it was aborted.
 function bench(role = roles.compose, { afford, signal, timers = clock() } = {}) {
   const sent = [], races = [];
-  const send = (body, signal) => new Promise((resolve, reject) => {
+  const send = (body, signal, why) => new Promise((resolve, reject) => {
     if (afford && !afford()) return reject(Error('budget'));
-    const r = { body, aborted: null, resolve, reject };
+    const r = { body, why, aborted: null, resolve, reject };
     signal.addEventListener('abort', () => { r.aborted = signal.reason.message; reject(signal.reason); });
     sent.push(r);
   });
@@ -39,7 +39,7 @@ test('a hedge fires at the delay, the first answer wins and the loser is aborted
   const b = bench();
   const p = b.run();
   await b.timers.tick(3000);
-  assert.deepEqual(b.sent.map(r => r.body.model), ['cohere/north-mini-code:free', 'openrouter/free']);
+  assert.deepEqual(b.sent.map(r => [r.body.model, r.why]), [['cohere/north-mini-code:free', 'first'], ['openrouter/free', 'hedge']]);
   assert.equal(b.sent[1].body.models, undefined);
   b.sent[1].resolve(content('second'));
   assert.deepEqual(await p, { value: 'second', model: 'openrouter/free' });
@@ -53,7 +53,7 @@ test('a failed, empty or invalid answer hands over to the next model at once', a
     const p = b.run();
     fail(b.sent[0]);
     await b.timers.tick(0);
-    assert.equal(b.sent.length, 2, why);
+    assert.deepEqual(b.sent.map(r => r.why), ['first', 'failover'], why);
     assert.equal(b.timers.now(), 0);
     b.sent[1].resolve(content('ok'));
     assert.deepEqual(await p, { value: 'ok', model: 'openrouter/free' });
