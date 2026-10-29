@@ -2,7 +2,7 @@ import { Bot } from './bot.js';
 import { disk } from './disk.js';
 import { site, admin } from './http.js';
 const defaults = {
-  APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona', DAILY_CALLS: '40', HALF_LIFE_DAYS: '30',
+  APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona', HALF_LIFE_DAYS: '30',
   DATA_DIR: '/data', PORT: '8080', MOD_PORT: '8081',
 };
 const env = { ...defaults, ...process.env };

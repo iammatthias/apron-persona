@@ -130,7 +130,7 @@ function strip(m, place) {
   const speed = d.speed ? ` title="median ${secs(d.speed.median)}, p90 ${secs(d.speed.p90)}"` : '';
   return `<div class="strip" id="strip" data-live><b class="nm">${escape(m.name)}</b>
 <span class="id"><i class="dot ${l.state}"></i><span>${escape(states[l.state](l))}${l.drops ? ` · <em class="warn">${l.drops} drops/h</em>` : ''}</span></span>
-<span class="calls" title="${escape(ledger(c))}">${cells(c)}<span>${c.limit ? `${c.total}/${c.limit} calls` : 'no calls today'}</span></span>
+<span class="calls" title="${escape(ledger(c))}">${c.limit ? cells(c) : ''}<span>${c.limit === null ? `${c.total} calls today` : c.limit ? `${c.total}/${c.limit} calls` : 'no calls today'}</span></span>
 <span class="kv"><span${speed}><b>${d.replies}</b> replies</span><span${d.unanswered ? ' class="warn"' : ''}><b>${d.unanswered}</b> unanswered</span><span><b>${d.learned}</b> learned</span><span class="faint">of ${d.read} read today</span></span>
 ${toggle(place, m.paused)}</div>`;
 }
@@ -216,7 +216,7 @@ function plumbing(m, place) {
 <section><h2>connection log <span>${m.log.length}</span></h2><div class="card connlog">${log || '<p class="small">nothing since I started.</p>'}</div></section>
 <section><h2>what the server told me</h2><div class="card"><details><summary>greeting and sign-in</summary><dl>${pairs(m.server) || '<dt>server</dt><dd>nothing yet</dd>'}</dl><dl>${m.you ? pairs(m.you) : '<dt>you</dt><dd>not signed in</dd>'}</dl></details></div></section>
 </div><div>
-<section><h2>calls today <span>${c.total} of ${c.limit}</span></h2><div class="card"><dl>${by}${c.unsorted ? `<dt>before sorting</dt><dd>${c.unsorted}</dd>` : ''}</dl>
+<section><h2>calls today <span>${c.limit === null ? c.total : `${c.total} of ${c.limit}`}</span></h2><div class="card"><dl>${by}${c.unsorted ? `<dt>before sorting</dt><dd>${c.unsorted}</dd>` : ''}</dl>
 <p class="small" style="margin-top:8px">counted since 00:00 UTC, across restarts. ${m.speed ? `replies took a median ${secs(m.speed.median)}, p90 ${secs(m.speed.p90)}, over ${plural(m.speed.n, 'reply', 'replies')}.` : 'no replies yet today.'}</p></div></section>
 <section><h2>ignored elsewhere <span>${m.elsewhere.length}</span></h2><div class="card">${m.elsewhere.map(r => `<p class="small">${time(r.at)} ${escape(r.who)}${r.room ? ` in #${escape(r.room)}` : ''}: ${escape(r.margin)}</p>`).join('') || '<p class="small">nothing.</p>'}</div></section>
 <section><h2>change server or token</h2><div class="card">${post(place, '/apron', `<label>server<input name="url" value="${escape(l.url)}" required></label>

@@ -1,3 +1,4 @@
+import { dailyCap } from './bot.js';
 import { transcript, fold, today } from './transcript.js';
 import { margins, churn } from './events.js';
 import { promptParts, roomPrompt, recall, list } from './settings.js';
@@ -18,7 +19,7 @@ const purposes = { judge: 'reading messages', compose: 'writing replies', learn:
 export function calls({ status, spent, limit, now }) {
   const fresh = status.budget.day === dayOf(now), total = fresh ? status.budget.calls : 0;
   const by = Object.keys(roles).map(role => ({ role, label: purposes[role], calls: 0, hedges: 0, retries: 0, ...fresh ? spent[role] : {} }));
-  return { total, limit: Number(limit) || 0, by, unsorted: total - by.reduce((n, r) => n + r.calls, 0) };
+  return { total, limit: dailyCap(limit), by, unsorted: total - by.reduce((n, r) => n + r.calls, 0) };
 }
 // The link at a glance. state is down (with an error) or connecting while not signed in, else paused or up; up is how long it has been signed in.
 export function link({ events, status, details, now }) {
@@ -78,7 +79,7 @@ export function needs(s) {
     const refused = s.events.filter(e => e.kind === 'error' && e.code === code);
     if (refused.length) out.push({ group: 'disk', tone: 'bad', href: '/?view=plumbing', text: `I couldn't save ${file}`, at: refused.at(-1).at, why: `refused ${plural(refused.length, 'time')}. I carry on and try again.` });
   }
-  if (c.total >= c.limit) out.push({ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: c.limit ? `I've spent all ${c.limit} calls for today` : 'DAILY_CALLS is 0, so I make no calls today',
+  if (c.limit !== null && c.total >= c.limit) out.push({ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: c.limit ? `I've spent all ${c.limit} calls for today` : 'DAILY_CALLS is 0, so I make no calls today',
     why: c.limit ? `${c.by.filter(r => r.calls).map(r => `${r.calls} ${r.label}`).join(', ') || 'none sorted by role'}. resets at 00:00 UTC.` : '' });
   return out;
 }

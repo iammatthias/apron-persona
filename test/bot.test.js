@@ -31,9 +31,9 @@ test('transcript stays in memory and persists only aggregate weights', async () 
   assert.ok(saved.every(s => !s.includes('private-content-canary') && !s.includes('alice')));
   bot.context[0].at = Date.now() - 300001; bot.prune(); assert.equal(bot.context.length, 0);
 });
-test('a DAILY_CALLS that is not a number means the default forty, never no limit', () => {
+test('there is no call cap unless DAILY_CALLS sets a whole number', () => {
   const left = DAILY_CALLS => new Bot({ ...env, DAILY_CALLS }, { load: () => ({}), save() {} }, { connect: socket }).left();
-  assert.deepEqual(['lots', '', '  ', undefined, null, 'NaN', 'Infinity'].map(left), [40, 40, 40, 40, 40, 40, 40]);
+  assert.deepEqual(['lots', '', '  ', undefined, null, 'NaN', 'Infinity', '-3', '2.5'].map(left), Array(9).fill(Infinity));
   assert.deepEqual([' 12 ', '0', 7].map(left), [12, 0, 7]);
 });
 test('daily budget prevents an upstream request', async () => {
@@ -666,4 +666,13 @@ test('a signed-in connection the network breaks is retried in seconds, a refused
   bot.drop('switched');
   await new Promise(r => setTimeout(r, 20));
   assert.equal(sockets.length, 2);
+});
+test('only an invalid_params answer marks a room unavailable; another server error does not', async () => {
+  const f = connected(model());
+  f.ws.history = [];
+  const e = Object.assign(Error('Too Many Requests'), { refused: true, code: -32002 });
+  f.bot.refuse('general', e);
+  assert.equal(f.bot.unavailable.size, 0);
+  f.bot.refuse('general', Object.assign(Error('Unknown room "general"'), { refused: true, code: -32602 }));
+  assert.deepEqual([...f.bot.unavailable], [['general', 'Unknown room "general"']]);
 });

@@ -52,8 +52,8 @@ export function socket() {
     send(raw) {
       const frame = JSON.parse(raw); sent.push(frame);
       if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
-      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { message: 'Room does not exist' } } : { id: frame.id, result: { messages: this.history ?? [] } }));
-      if (frame.method === 'room_join') queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { message: 'Room does not exist' } } : { id: frame.id, result: {} }));
+      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { code: -32602, message: 'Room does not exist' } } : { id: frame.id, result: { messages: this.history ?? [] } }));
+      if (frame.method === 'room_join') queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { code: -32602, message: 'Room does not exist' } } : { id: frame.id, result: {} }));
     },
   };
 }

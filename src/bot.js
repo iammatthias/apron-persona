@@ -8,11 +8,14 @@ import * as models from './models.js';
 const TTL = 300000;
 // A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
 const DEADLINE = 25000, TYPING = 6000;
-// Calls a day when DAILY_CALLS is missing or not a number; index.js sets the same default.
-const DAILY_CALLS = 40;
 // Failures that are outcomes in their own right, with no detail to add.
 const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
+// DAILY_CALLS as a whole number of calls, or null for no cap when it is unset, blank or not a number.
+export function dailyCap(value) {
+  const n = Number(String(value ?? '').trim() || NaN);
+  return Number.isInteger(n) && n >= 0 ? n : null;
+}
 export class Bot {
   constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000, timers = models.real } = {}) {
     this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log; this.retry = retry; this.timers = timers;
@@ -86,13 +89,14 @@ export class Bot {
       const abort = () => end(signal.reason);
       const timer = this.timers.setTimeout(() => end(Error('timeout')), 10000);
       signal?.addEventListener('abort', abort);
-      this.waiting.set(id, frame => end(frame.error ? Object.assign(Error(frame.error.message || 'apron-request-failed'), { refused: true }) : null, frame.result));
+      this.waiting.set(id, frame => end(frame.error ? Object.assign(Error(frame.error.message || 'apron-request-failed'), { refused: true, code: frame.error.code }) : null, frame.result));
       this.send(method, params, id);
     });
   }
   // Remembers a room the server answered with an error, as opposed to a request that timed out or found no connection.
+  // Only invalid_params (the answer for an unknown or invisible room) marks it; a passing server error doesn't.
   refuse(room_id, e) {
-    if (e.refused) this.unavailable.set(room_id, e.message.slice(0, 200));
+    if (e.refused && e.code === -32602) this.unavailable.set(room_id, e.message.slice(0, 200));
   }
   // The bot's own live messages, newest first, read from Apron and never stored. A room whose history the server
   // refuses is left out from then on; any other failure fails the read.
@@ -256,8 +260,9 @@ export class Bot {
   left() {
     const day = new Date().toISOString().slice(0, 10);
     if (this.budget.day !== day) { this.budget = { day, calls: 0 }; this.spent = {}; }
-    const set = String(this.env.DAILY_CALLS ?? '').trim(), cap = set ? Number(set) : NaN;
-    return (Number.isFinite(cap) ? cap : DAILY_CALLS) - this.budget.calls;
+    // No cap unless the owner sets one: the key allows only free models, and OpenRouter's own rate limit answers 429.
+    const cap = dailyCap(this.env.DAILY_CALLS);
+    return cap === null ? Infinity : cap - this.budget.calls;
   }
   // One request to OpenRouter, counted against the day's calls before it is sent. An endpoint that refuses to have
   // its thinking turned off ("Reasoning is mandatory") is asked again at once with the thinking merely hidden.
