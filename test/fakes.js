@@ -30,7 +30,7 @@ export function lab() {
     const c = { body: JSON.parse(init.body), aborted: null, settled: false };
     const settle = f => (...a) => { if (!c.settled) { c.settled = true; f(...a); } };
     c.answer = settle(data => resolve(Response.json(data)));
-    c.fail = settle(status => resolve(new Response('', { status })));
+    c.fail = settle((status, text = '') => resolve(new Response(text, { status })));
     c.throw = settle(reject);
     init.signal?.addEventListener('abort', () => { c.aborted = init.signal.reason?.message ?? 'aborted'; c.throw(init.signal.reason); });
     calls.push(c);

@@ -236,7 +236,8 @@ export class Bot {
     if (this.budget.day !== day) this.budget = { day, calls: 0 };
     return +this.env.DAILY_CALLS - this.budget.calls;
   }
-  // One request to OpenRouter, counted against the day's calls before it is sent.
+  // One request to OpenRouter, counted against the day's calls before it is sent. An endpoint that refuses to have
+  // its thinking turned off ("Reasoning is mandatory") is asked again at once with the thinking merely hidden.
   async api(body, signal) {
     if (this.left() <= 0) throw Error('budget');
     ++this.budget.calls; this.save();
@@ -245,6 +246,7 @@ export class Bot {
       headers: { Authorization: `Bearer ${this.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, provider: { data_collection: 'deny' } }),
     });
+    if (res.status === 400 && body.reasoning?.enabled === false && /reasoning/i.test(await res.text())) return this.api({ ...body, reasoning: { exclude: true } }, signal);
     if (!res.ok) throw Error(`inference-${res.status}`);
     return res.json();
   }

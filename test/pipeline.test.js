@@ -230,6 +230,23 @@ test('handle() called on its own is never overtaken by a message it has not seen
   r.calls[0].answer(judged()); r.calls[1].answer(content('yo'));
   assert.equal((await done).outcome, 'replied');
 });
+test('an endpoint that insists on thinking is asked again with it hidden, and the retry counts', async () => {
+  const r = rig();
+  await r.say('hey @bot_me');
+  assert.deepEqual(r.calls.map(c => c.body.reasoning), [{ enabled: false, exclude: true }, { enabled: false, exclude: true }]);
+  r.calls[0].fail(400, 'Reasoning is mandatory for this endpoint and cannot be disabled.');
+  r.calls[1].fail(400, 'Reasoning is mandatory for this endpoint and cannot be disabled.');
+  await r.flush();
+  assert.deepEqual(r.calls.slice(2).map(c => [c.body.model, c.body.reasoning]), [['d', { exclude: true }], ['c', { exclude: true }]]);
+  r.calls[2].answer(judged()); r.calls[3].answer(content('yo'));
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.last().via, r.bot.budget.calls, r.posts().length], ['replied', { judge: 'd', compose: 'c' }, 4, 1]);
+  const other = rig();
+  await other.say('hey @bot_me');
+  other.calls[0].fail(400, 'max_tokens too large'); other.calls[1].fail(400, 'max_tokens too large');
+  await other.flush();
+  assert.deepEqual(other.calls.slice(2).map(c => c.body.model), ['openrouter/free', 'openrouter/free']);
+});
 test('a second sender waits for the reply in flight, then is answered', async () => {
   const r = rig();
   await r.say('hey @bot_me', { from: { user_id: 'carol' } });
