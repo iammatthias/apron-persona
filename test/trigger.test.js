@@ -39,7 +39,7 @@ test('addressed messages: trigger, then the reply bar, then the cooldown', () =>
   assert.deepEqual(decide({}, 'mention', .5, { now, lastReply: now, lastOrganic: 0 }), { respond: null, outcome: 'declined', need: .7 });
 });
 test('unaddressed messages: organic switch, then its bar, then the room gap, then the cooldown', () => {
-  const decide = (s, reply_p, clocks = quietClocks) => trigger({ ...base, ...s }, { addressed: undefined, eligible: true, reply_p }, clocks);
+  const decide = (s, reply_p, clocks = quietClocks) => trigger({ ...base, ...s }, { addressed: undefined, eligible: true, reply_p, point_p: 1 }, clocks);
   const on = { organic: true };
   assert.deepEqual(decide({}, .99), { respond: null, outcome: 'learned-only' });
   assert.deepEqual(decide(on, .9), { respond: 'organic', outcome: 'chimed-in' });
@@ -51,4 +51,25 @@ test('unaddressed messages: organic switch, then its bar, then the room gap, the
   assert.deepEqual(decide(on, .95, { now, lastReply: now - 1000, lastOrganic: 0 }), { respond: null, outcome: 'cooldown', wait: 15 });
   assert.deepEqual(decide(on, .5, { now, lastReply: now, lastOrganic: now }), { respond: null, outcome: 'held-back', need: .9 });
   assert.deepEqual(decide(on, .95, { now, lastReply: now, lastOrganic: now }), { respond: null, outcome: 'quiet-gap', ago: 0 });
+});
+test('a chime-in also needs a point that clears the same bar; mentions and replies never ask for one', () => {
+  const decide = (s, addressed, reply_p, point_p, clocks = quietClocks) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p, point_p }, clocks);
+  assert.deepEqual(decide({}, undefined, .95, .9), { respond: 'organic', outcome: 'chimed-in' });
+  assert.deepEqual(decide({}, undefined, .95, .42), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide({}, undefined, .95, .89), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide({ organic_threshold: .6 }, undefined, .7, .6), { respond: 'organic', outcome: 'chimed-in' });
+  assert.deepEqual(decide({ organic_threshold: .6 }, undefined, .7, .59), { respond: null, outcome: 'nothing-to-add', need: .6 });
+  assert.deepEqual(decide({}, undefined, .95, undefined), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide({}, undefined, .95, NaN), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide({}, undefined, .5, 1), { respond: null, outcome: 'held-back', need: .9 });
+  assert.deepEqual(decide({}, undefined, .5, 0), { respond: null, outcome: 'held-back', need: .9 });
+  assert.deepEqual(decide({ organic: false }, undefined, .99, 0), { respond: null, outcome: 'learned-only' });
+  assert.deepEqual(decide({}, undefined, .95, .1, { now, lastReply: 0, lastOrganic: now }), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide({}, undefined, .95, .95, { now, lastReply: 0, lastOrganic: now }), { respond: null, outcome: 'quiet-gap', ago: 0 });
+  assert.deepEqual(decide({}, undefined, .95, .95, { now, lastReply: now, lastOrganic: 0 }), { respond: null, outcome: 'cooldown', wait: 15 });
+  for (const addressed of ['mention', 'reply']) {
+    assert.deepEqual(decide({}, addressed, .7, 0), { respond: addressed, outcome: 'replied' });
+    assert.deepEqual(decide({}, addressed, .7, undefined), { respond: addressed, outcome: 'replied' });
+    assert.deepEqual(decide({}, addressed, .69, 1), { respond: null, outcome: 'declined', need: .7 });
+  }
 });

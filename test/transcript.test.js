@@ -95,6 +95,8 @@ test('every outcome has a margin, and a learned style names its strongest lean',
   assert.equal(learned([.75, .5, .5, .5]), 'learned. a little warmer. (0.80)');
   assert.equal(learned([.5, .5, .5, 0]), 'learned. a little terser. (0.80)');
   assert.equal(learned([.5, .5, .5, .5]), 'learned. no lean either way. (0.80)');
+  assert.equal(margins['nothing-to-add'].say({ reply_p: .95, point_p: .42, need: .9 }), 'could have chimed in, but I had nothing specific to add (0.42).');
+  assert.equal(outcomes['nothing-to-add'], 'Not addressed; nothing specific to add');
 });
 test('a post deleted later loses its delete, and a message that did not engage the bot has no text', () => {
   const [general] = transcript(events, ['general']).rooms;

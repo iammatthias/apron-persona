@@ -33,11 +33,13 @@ test('names why it skips bots, notices, own messages, deletes, blanks and unwatc
 });
 test('rejects malformed decisions and computes expected trait values', () => {
   const reply = content => ({ choices: [{ message: { content } }] });
-  const answers = { learn: .9, reply: .8, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
+  const answers = { learn: .9, reply: .8, point: .6, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
   assert.deepEqual(decision(reply(JSON.stringify(answers))).vector, [1, 0, .5, .75]);
   assert.equal(decision(reply('```json\n' + JSON.stringify(answers) + '\n```')).learn, .9);
   assert.throws(() => decision(reply(JSON.stringify({ ...answers, warmth: 'toString' }))));
   assert.throws(() => decision(reply(JSON.stringify({ ...answers, learn: 2 }))));
+  assert.equal(decision(reply(JSON.stringify(answers))).point, .6);
+  for (const point of [undefined, -0.1, 1.5, '0.6', null]) assert.throws(() => decision(reply(JSON.stringify({ ...answers, point }))), { message: 'invalid-decision' }, String(point));
   assert.throws(() => decision(reply('not json')));
   assert.throws(() => decision({}));
 });

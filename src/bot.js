@@ -240,8 +240,8 @@ export class Bot {
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
-    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, style: learned ? result.vector : undefined };
-    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply }, { ...clocks, lastReply: this.lastReply });
+    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, style: learned ? result.vector : undefined };
+    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point }, { ...clocks, lastReply: this.lastReply });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     this.prune();

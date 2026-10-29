@@ -5,7 +5,7 @@ export const kinds = {
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
   // addressed is 'mention' or 'reply'. need, ago and wait are the bar, the time since the last chime-in, and the cooldown that decided it.
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'style', 'need', 'ago', 'wait', 'detail'] },
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'ago', 'wait', 'detail'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   // The new value of each changed setting except the persona, whose text stays out of the log.
@@ -31,6 +31,7 @@ export const outcomes = {
   'learned-only': 'Classified; not addressed',
   declined: 'Addressed; reply probability below the bar',
   'held-back': 'Not addressed; below the chime-in bar',
+  'nothing-to-add': 'Not addressed; nothing specific to add',
   'quiet-gap': 'Not addressed; chimed in here too recently',
   cooldown: 'Posted too recently',
   budget: 'Skipped: daily calls used up',
@@ -66,6 +67,7 @@ export const margins = {
   'learned-only': { place: 'room', say: e => e.style ? `learned. ${lean(e.style)}. (${p2(e.learn_p)})` : `didn't learn. learn chance ${p2(e.learn_p)}, I need 0.80.` },
   declined: { place: 'room', tone: 'warn', say: e => `didn't answer. reply chance ${p2(e.reply_p)}, I need ${p2(e.need)}.` },
   'held-back': { place: 'room', say: e => `could have chimed in (${p2(e.reply_p)}), but I hold out for ${p2(e.need)}.` },
+  'nothing-to-add': { place: 'room', say: e => `could have chimed in, but I had nothing specific to add (${p2(e.point_p)}).` },
   'quiet-gap': { place: 'room', say: e => `would have chimed in, but I spoke up here ${e.ago < 60000 ? 'under a minute' : `${Math.round(e.ago / 60000)} min`} ago.` },
   cooldown: { place: 'room', tone: 'warn', say: e => `${e.addressed ? "didn't answer" : 'would have chimed in'}. I'd posted under ${plural(e.wait, 'second')} before.` },
   budget: { place: 'room', tone: 'warn', say: () => "I'm out of calls for today, so I let it pass." },
