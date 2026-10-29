@@ -1,5 +1,5 @@
-import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { Bot } from './bot.js';
+import { disk } from './disk.js';
 import { site, admin } from './http.js';
 const defaults = {
   APRON_URL: 'wss://server.apron.chat/', ROOMS: 'general', BOT_NAME: 'Apron Persona',
@@ -8,18 +8,11 @@ const defaults = {
 };
 const env = { ...defaults, ...process.env };
 for (const k of ['OPENROUTER_API_KEY', 'HASH_SECRET']) if (!env[k]) throw Error(`missing ${k}`);
+const { write, load } = disk(env.DATA_DIR);
 // The Apron server and token set on the moderation page override the environment.
-const apronFile = `${env.DATA_DIR}/apron.json`;
-try { const { url, token } = JSON.parse(readFileSync(apronFile, 'utf8')); Object.assign(env, { APRON_URL: url, APRON_TOKEN: token }); } catch {}
-// Atomic JSON files: a crash mid-write keeps the previous version.
-const write = (name, value, mode = 0o644) => {
-  const path = `${env.DATA_DIR}/${name}`;
-  writeFileSync(`${path}.tmp`, JSON.stringify(value), { mode }); chmodSync(`${path}.tmp`, mode); renameSync(`${path}.tmp`, path);
-};
-const store = {
-  load() { try { return JSON.parse(readFileSync(`${env.DATA_DIR}/state.json`, 'utf8')); } catch { return {}; } },
-  save(state) { write('state.json', state); },
-};
+const saved = load('apron.json');
+if (saved.url && saved.token) Object.assign(env, { APRON_URL: saved.url, APRON_TOKEN: saved.token });
+const store = { load: () => load('state.json'), save: state => write('state.json', state) };
 const bot = new Bot(env, store);
 let last;
 const tick = () => {

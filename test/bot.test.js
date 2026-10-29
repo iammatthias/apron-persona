@@ -3,6 +3,10 @@ import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { margins } from '../src/events.js';
 import { settings, guardrails, cue, chime } from '../src/settings.js';
+import { check, disk, never } from '../src/disk.js';
+import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 // A fake Apron connection that records sent frames and acknowledges each new post; `emit` delivers server frames.
@@ -23,7 +27,7 @@ function socket() {
 const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, cooldown: 15, organic: false, organic_threshold: .9, organic_gap: 30 };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
-  const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(s)) }, { connect: () => ws, request });
+  const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
   return { bot, ws, saved };
 }
 test('transcript stays in memory and persists only aggregate weights', async () => {
@@ -260,13 +264,35 @@ test('only messages that engage the bot keep their text, and a reply records wha
   assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${id}`, reply_to: String(ids), text: 'model-canary' });
   assert.ok(f.bot.own.has(`posted-${id}`));
 });
-test('nothing bound for DATA_DIR carries message or reply text', async () => {
-  const f = connected(model({ text: 'model-canary' }));
-  await deliver(f, {}, 'quiet-canary'); await deliver(f, { from: { user_id: 'dave' } }, 'engaged-canary @bot_me');
-  f.bot.save();
-  assert.equal(f.bot.log.list().filter(e => e.kind === 'posted').length, 1);
-  const disk = [...f.saved, JSON.stringify(f.bot.status())].join('\n');
-  for (const canary of ['quiet-canary', 'engaged-canary', 'model-canary']) assert.ok(!disk.includes(canary), canary);
+test('nothing written to DATA_DIR carries anything on the never-store list', async () => {
+  const canaries = {
+    'message text': ['quiet-canary', 'engaged-canary', 'chime-canary'],
+    'sender names': ['Canary Name'],
+    'sender user ids': ['u_canary', 'u_other'],
+    'auth tokens outside apron.json': ['canary-apron-token', 'canary-openrouter-key', 'canary-hash-secret'],
+    prompts: ['You classify one chat message', guardrails.slice(0, 60), cue],
+    'model output': ['model-canary'],
+  };
+  assert.deepEqual(Object.keys(canaries), Object.keys(never));
+  const dir = mkdtempSync(join(tmpdir(), 'persona-canary-'));
+  try {
+    const { write, load } = disk(dir), ws = socket();
+    const secrets = { APRON_TOKEN: 'canary-apron-token', OPENROUTER_API_KEY: 'canary-openrouter-key', HASH_SECRET: 'canary-hash-secret' };
+    const bot = new Bot({ ...env, ...secrets }, { load: () => load('state.json'), save: s => write('state.json', s) },
+      { connect: () => ws, request: model({ scores: { reply: .95, point: .95 }, text: 'model-canary' }) });
+    const f = { bot, ws };
+    bot.tick(); ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+    bot.configure({ organic: 'on', cooldown: '0' });
+    assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'chime-canary'))[0].outcome, 'chimed-in');
+    assert.equal((await deliver(f, { from: { user_id: 'u_other', name: 'Canary Name' } }, 'quiet-canary'))[0].outcome, 'quiet-gap');
+    assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'engaged-canary @bot_me'))[0].outcome, 'replied');
+    bot.save(); write('status.json', bot.status());
+    assert.deepEqual(posts(ws).map(m => m.body.text), ['model-canary', 'model-canary']);
+    assert.deepEqual(readdirSync(dir).sort(), ['state.json', 'status.json']);
+    const stored = readdirSync(dir).map(name => readFileSync(join(dir, name), 'utf8')).join('\n');
+    assert.deepEqual(Object.keys(load('state.json').personality.cells), ['2222']);
+    for (const canary of Object.values(canaries).flat()) assert.ok(!stored.includes(canary), canary);
+  } finally { rmSync(dir, { recursive: true }); }
 });
 test('connection, auth, settings, deletes and errors are recorded', async () => {
   const f = connected();
