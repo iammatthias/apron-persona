@@ -138,7 +138,7 @@ export function dashboard(ctx) {
   const c = { ...ctx, calls, now };
   const shown = ctx.room === 'elsewhere' ? t.elsewhere : t.rooms.find(r => r.id === ctx.room).rows;
   const link = (q, label, current) => `<a href="/?${q}"${current ? ' aria-current="page"' : ''}>${label}</a>`;
-  const tabs = t.rooms.map(r => link(`room=${encodeURIComponent(r.id)}`, `#${escape(r.id)}${r.unanswered ? ` <em>${r.unanswered} unanswered</em>` : ''}`, r.id === ctx.room)).join('')
+  const tabs = t.rooms.map(r => [r, r.rows.filter(x => x.unanswered).length]).map(([r, n]) => link(`room=${encodeURIComponent(r.id)}`, `#${escape(r.id)}${n ? ` <em>${n} unanswered</em>` : ''}`, r.id === ctx.room)).join('')
     + `<a class="elsewhere" href="/?room=elsewhere"${ctx.room === 'elsewhere' ? ' aria-current="page"' : ''}>ignored elsewhere ${t.elsewhere.length}</a>`;
   const nav = views.map((v, i) => link(`view=${v}&room=${encodeURIComponent(ctx.room)}`, ['transcript', 'who I am', 'where I live'][i], v === ctx.view)).join('');
   const flash = ctx.flash ? `<div class="flash"><p${ctx.flash.error ? ' class="bad"' : ''}>${escape(ctx.flash.error ?? ctx.flash.ok)}</p></div>` : '';

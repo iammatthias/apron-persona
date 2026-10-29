@@ -1,14 +1,13 @@
 import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
-import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
+import { settings, restore, systemPrompt, roomPrompt, line, recall } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
 import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
 import * as models from './models.js';
 const TTL = 300000;
-// A message is answered within DEADLINE or not at all; the room history gets CONTEXT ms before the bot's own memory
-// stands in; a typing notice is renewed every TYPING ms while a reply is drafted.
-const DEADLINE = 25000, CONTEXT = 3000, TYPING = 6000;
+// A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
+const DEADLINE = 25000, TYPING = 6000;
 // Failures that are outcomes in their own right, with no detail to add.
 const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
@@ -318,8 +317,8 @@ export class Bot {
       signal.addEventListener('abort', relay);
       return work(c.signal).finally(() => { this.timers.clearTimeout(timer); signal.removeEventListener('abort', relay); });
     };
-    const own = () => this.context.filter(x => x.room === p.room_id).slice(-8);
-    const context = hopeful ? timed('context', () => within(CONTEXT, s => this.recent(p, s))).then(lines => lines ?? own(), own) : null;
+    const own = () => this.context.filter(x => x.room === p.room_id).slice(-recall.own);
+    const context = hopeful ? timed('context', () => within(recall.wait, s => this.recent(p, s))).then(lines => lines ?? own(), own) : null;
     const draft = organic => context.then(lines => {
       if (signal.aborted) throw signal.reason;
       const stop = this.typing(p.room_id, connection);
@@ -391,7 +390,7 @@ export class Bot {
   }
   // The room's last messages up to and including p, read from Apron just for this reply and never kept:
   // what the bot saw live since its last restart is too little to answer from.
-  async recent(p, signal, size = 20) {
+  async recent(p, signal, size = recall.lines) {
     const page = await this.call('history', { room_id: p.room_id, limit: 40 }, signal);
     const latest = new Map();
     for (const m of page?.messages ?? []) {

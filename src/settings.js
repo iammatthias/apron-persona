@@ -74,6 +74,9 @@ export function promptParts({ persona }, personality, name, notes = '') {
 export const systemPrompt = (s, personality, name, notes) => promptParts(s, personality, name, notes).filter(Boolean).join(' ');
 export const cue = 'Write your next line in the room. Just the text: no name in front, no quotes.';
 export const chime = "Nobody asked you anything: you're speaking up on your own, so make it an aside that fits the flow, not an answer to anyone. Write your next line in the room. Just the text: no name in front, no quotes.";
+// How much of the room a reply sees: up to `lines` messages of its history, or, when history takes longer than `wait`
+// ms, the last `own` the bot saw itself.
+export const recall = { lines: 20, own: 8, wait: 3000 };
 // Recent room lines as one transcript, so the model plays a member of the room rather than an assistant taking turns.
 // Continuation lines are indented, so a message can't pass off a line as someone else's.
 // Names are folded to one line and content lines are indented, so no message can fake another speaker's line.

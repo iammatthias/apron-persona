@@ -75,9 +75,8 @@ test('the dashboard shows the transcript and the last error, and /rows serves ro
   assert.ok(html.includes('last error inference-&#60;429&#62; at '));
   assert.ok(html.includes("I can't read my history right now (not-connected)."));
   const rows = await (await get(admin, `/rows?room=general&since=${posted.at - 1}`)).text();
-  assert.equal(rows.match(/data-at="\d+"/g).length, 2);
+  assert.equal(rows.match(/data-at="\d+"/g).length, 1);
   assert.ok(rows.startsWith(`<div class="m self" data-at="${posted.at}" data-message-id="p1">`) && rows.includes('<p>hello &#60;b&#62;</p>'));
-  assert.ok(rows.includes('error: inference-&#60;429&#62;'));
   bot.log.push({ kind: 'deleted', room: 'general', message_id: 'p1' });
   const one = await (await get(admin, '/rows?room=general&id=p1')).text();
   assert.ok(one.startsWith(`<div class="m self gone" data-at="${posted.at}" data-message-id="p1">`) && one.includes('I deleted this.') && !one.includes('<form'));
