@@ -184,6 +184,7 @@ ${post(place, '/learn/apply', `<label>who I'd be. edit before applying.<textarea
 };
 const thinking = {
   answer: (x, place) => `<div class="card">${post(place, '/settings', `${check(x.settings, 'reply_mentions', 'answer when mentioned')}${check(x.settings, 'reply_replies', 'answer replies to my messages')}${bar(x.settings, 'reply_threshold', 'reply bar')}
+<label>my owner's user id, never rested on<input name="owner" value="${escape(x.settings.owner ?? '')}" placeholder="blank: guessed from my own id" maxlength="128"></label>
 <div class="bar"><button class="save">save</button><span>today: ${x.today.answered} answered, ${x.today.not} not</span></div>`)}</div>`,
   chime: (x, place) => `<div class="card">${post(place, '/settings', `${check(x.settings, 'organic', 'chime in unprompted')}${bar(x.settings, 'organic_threshold', 'chime-in bar')}
 <div class="bar"><button class="save">save</button><span>today: ${plural(x.today.chimed, 'chime-in')}, ${x.today.held} held back</span></div>`)}</div>`,

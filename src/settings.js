@@ -40,6 +40,13 @@ export const settings = {
   organic: flag('chiming in', false),
   organic_threshold: number('the chime-in bar', 0.5, 0.99, 0.9),
   norms: { default: () => ({}), parse: norms },
+  // The owner's user id, who is never rested on. Blank means "guess from my bot_<owner> id", which goes stale when
+  // the owner's account changes id after the bot was made.
+  owner: { default: () => '', parse: v => {
+    const s = String(v ?? '').trim();
+    if (s && !/^[\w~.:-]{1,128}$/.test(s)) throw Error('the owner is a user id, like matthias');
+    return s;
+  } },
 };
 // Every save stores the persona, so an untouched bot carries a retired default; it moves to the current one.
 const retired = new Set([

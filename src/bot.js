@@ -496,6 +496,7 @@ export class Bot {
   // from. Apron's /invite-bot makes a bot `bot_<owner's user_id>` and sends no owner field; the user_id stays when
   // the owner is renamed, so after a rename this names the old id.
   get owner() {
+    if (this.settings.owner) return this.settings.owner;
     if (typeof this.you?.owner === 'string' && this.you.owner) return this.you.owner;
     return typeof this.self === 'string' && this.self.startsWith('bot_') && this.self.length > 4 ? this.self.slice(4) : undefined;
   }

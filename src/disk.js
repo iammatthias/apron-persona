@@ -29,7 +29,7 @@ const state = object({
   spent: map(one(Object.keys(roles)), object({ calls: count, hedges: count, retries: count })),
   settings: object({
     persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
-    organic: boolean, organic_threshold: number, norms: map(room, owner(1000)),
+    organic: boolean, organic_threshold: number, norms: map(room, owner(1000)), owner: string(/^[\w~.:-]{0,128}$/, 128),
   }),
   memory: object({
     rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })),

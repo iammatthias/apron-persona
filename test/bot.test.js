@@ -13,7 +13,7 @@ import { snapshot } from '../src/http.js';
 import { needs } from '../src/views.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
-const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {} };
+const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
@@ -749,4 +749,14 @@ test('request ids never repeat across a restart, since the server remembers them
   const [a, b] = [ids(), ids()];
   assert.equal(new Set([...a, ...b]).size, 4);
   assert.match(a[0], /^[0-9a-f]{8}\.\d+$/);
+});
+test('an owner set on the portal wins over the guess from the bot id, and a bad one is refused', () => {
+  const { bot } = connected(model());
+  bot.self = 'bot_guest_1';
+  assert.equal(bot.owner, 'guest_1');
+  bot.configure({ owner: 'matthias' });
+  assert.equal(bot.owner, 'matthias');
+  assert.throws(() => bot.configure({ owner: 'two words' }), /the owner is a user id/);
+  bot.configure({ owner: '' });
+  assert.equal(bot.owner, 'guest_1');
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { settings, restore, systemPrompt, guardrails, temperament, roomPrompt, line, cue, chime } from '../src/settings.js';
 const traits = { warmth: .5, playfulness: .25, curiosity: 1, expressiveness: 0 };
 const persona = settings.persona.default();
-const defaults = { persona, paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {} };
+const defaults = { persona, paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
 test('settings reject an empty or over-long persona and a non-switch pause', () => {
   assert.throws(() => settings.persona.parse('   '), { message: 'a persona is 1 to 4000 characters' });
   assert.throws(() => settings.persona.parse('x'.repeat(4001)), { message: 'a persona is 1 to 4000 characters' });
