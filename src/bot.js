@@ -150,6 +150,7 @@ export class Bot {
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
     this.ws = ws; this.connectedAt = this.lastFrame = Date.now(); this.ready = false;
+    let greeted = false;
     const closed = e => { if (this.ws === ws) this.drop(e.reason || (e.code ? `close-${e.code}` : e.type ?? 'closed')); };
     ws.addEventListener('close', closed); ws.addEventListener('error', closed);
     ws.addEventListener('message', event => {
@@ -163,8 +164,9 @@ export class Bot {
       }
       if (waiter) { this.waiting.delete(frame.id); return waiter(frame); }
       if (frame.method === 'pong' && this.pingedAt) { this.latency = Date.now() - this.pingedAt; this.pingedAt = 0; }
+      // Each `server` frame replaces the last; only the first is the greeting that sign-in answers.
       if (frame.method === 'server') this.server = frame.params ?? {};
-      if (frame.method === 'server') this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth');
+      if (frame.method === 'server' && !greeted) { greeted = true; this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth'); }
       if (frame.id === 'auth' && frame.error) { this.record('auth-denied'); this.fail('apron-auth-denied'); this.drop('auth-denied'); }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);
       if (frame.method === 'user') {
