@@ -326,6 +326,21 @@ test('connection, auth, settings, deletes and errors are recorded', async () => 
   assert.equal(f.bot.lastError.code, 'apron-auth-denied');
 });
 const posts = ws => ws.sent.filter(f => f.method === 'message').map(f => f.params);
+// The server may send a new `server` frame at any time, and it answers a repeated auth id with the first result.
+test('a later server frame replaces the greeting without signing in or connecting again', () => {
+  const ws = socket(), you = { user_id: 'bot_me', name: 'Persona' };
+  const raw = ws.send.bind(ws);
+  ws.send = r => { raw(r); if (JSON.parse(r).method === 'auth') ws.emit({ id: 'auth', result: { you } }); };
+  const bot = new Bot(env, { load: () => ({}), save: () => {} }, { connect: () => ws });
+  bot.tick();
+  ws.emit({ method: 'server', params: { agent: 'x/1' } });
+  const since = bot.since;
+  ws.emit({ method: 'server', params: { agent: 'x/2' } });
+  assert.equal(bot.server.agent, 'x/2');
+  assert.deepEqual(ws.sent.map(f => f.method), ['auth', 'room_join']);
+  assert.deepEqual(bot.log.list().map(e => e.kind), ['connected']);
+  assert.equal(bot.since, since);
+});
 test('a mention or a reply whose trigger is off is let be, without a classifier call when nothing is learned', async () => {
   let calls = 0;
   const f = connected(async (...a) => { ++calls; return model()(...a); });
