@@ -483,3 +483,22 @@ test('status folds a server agent string to one bounded line', () => {
   const agent = bot.status().server.agent;
   assert.ok(!/\s{2}|\n|\t/.test(agent)); assert.equal(agent.length, 200); assert.ok(agent.startsWith('weird agent x'));
 });
+test('a state.json section that would not pass the write check loads as its default, and old memory is pruned on load', () => {
+  const today = new Date().toISOString().slice(0, 10), old = '2020-01-01';
+  const bucket = { topics: { code: { messages: 1, engaged: 0, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] };
+  const { bot } = fixture(undefined, () => ({
+    personality: { version: 1, at: 0, cells: { bad: 'x' } }, budget: { day: 'yesterday', calls: -1 },
+    memory: { rooms: { general: { days: { [old]: bucket, [today]: bucket }, weeks: { [old]: bucket } } }, pages: {} },
+  }));
+  assert.deepEqual(bot.state.cells, {});
+  assert.deepEqual(bot.budget, { day: '', calls: 0 });
+  assert.deepEqual(Object.keys(bot.memory.rooms.general.days), [today]);
+  assert.deepEqual(bot.memory.rooms.general.weeks, {});
+});
+test('a refused state write is recorded and the bot carries on', () => {
+  const { bot } = fixture();
+  bot.store.save = () => { throw Error('refused to store state.json'); };
+  bot.save();
+  assert.equal(bot.status().error, 'state-refused');
+  assert.equal(bot.dirty, false);
+});

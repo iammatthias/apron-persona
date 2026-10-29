@@ -11,17 +11,21 @@ export class Bot {
     this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log;
     this.rooms = env.ROOMS.split(',').map(s => s.trim()).filter(Boolean);
     const saved = store.load();
-    this.state = saved.personality ?? fresh();
-    this.budget = saved.budget ?? { day: '', calls: 0 };
+    // Each section is checked as it loads: one that wouldn't pass the write check falls back to its default,
+    // so a save can't be refused for something already on disk. Retention applies straight away.
+    const ok = (key, value) => fits(schemas['state.json'].fields[key], value);
+    this.state = ok('personality', saved.personality) ? saved.personality : fresh();
+    this.budget = ok('budget', saved.budget) ? saved.budget : { day: '', calls: 0 };
     this.settings = restore(saved);
-    // A state.json from before the room memory, or one whose memory no longer fits, starts it empty.
-    this.memory = fits(schemas['state.json'].fields.memory, saved.memory) ? saved.memory : empty();
+    this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
+  // A refused write is recorded and the bot carries on; the next save tries again.
   save() {
-    this.store.save({ personality: this.state, budget: this.budget, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) });
+    try { this.store.save({ personality: this.state, budget: this.budget, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) }); }
+    catch { this.fail('state-refused'); }
     this.dirty = false;
   }
   record(kind, fields) { this.log.push(event(kind, fields)); }
