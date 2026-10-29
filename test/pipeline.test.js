@@ -149,6 +149,7 @@ test('losing the connection aborts every call in flight and the message is stale
   assert.equal(r.last().outcome, 'stale');
   assert.deepEqual(r.typing(), [8]);
   assert.equal(r.timers.pending(), 0);
+  assert.equal(r.bot.newest.size, 0);
 });
 test('a slow history read is given 3 s, then the bot answers from what it saw itself', async () => {
   const r = rig();
@@ -227,6 +228,54 @@ test('a burst whose later messages arrive before the first is drafted costs no c
   await r.settle();
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['b1', 'superseded'], ['b2', 'superseded'], ['m1', 'replied']]);
   assert.deepEqual(r.posts().map(p => p.reply_to.message_id), ['m1']);
+});
+test('an untagged follow-up sent while the bot drafts is answered after the first reply, not superseded by it', async () => {
+  const r = rig();
+  const carol = { from: { user_id: 'carol' } };
+  r.crowd();
+  await r.say('hey @bot_me, best ramen?', carol);
+  r.calls[0].answer(judged());
+  await r.timers.tick(0);
+  await r.say('in the east side ideally', carol);
+  assert.deepEqual([r.roles(), r.calls[1].aborted], [['judge', 'compose'], null]);
+  r.calls[1].answer(content('try Y'));
+  await r.flush();
+  assert.deepEqual(r.posts().map(p => [p.body.text, p.reply_to.message_id]), [['try Y', 'm1']]);
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose']);
+  r.calls[2].answer(judged()); r.calls[3].answer(content('east side, then Z'));
+  await r.settle();
+  assert.deepEqual(r.posts().map(p => [p.body.text, p.reply_to.message_id]), [['try Y', 'm1'], ['east side, then Z', 'm2']]);
+  const events = r.bot.log.list().filter(e => e.kind === 'message').map(({ at, kind, ms, via, ...e }) => e);
+  assert.deepEqual(events, [
+    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me, best ramen?', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5] },
+    { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'in the east side ideally', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9 },
+  ]);
+  assert.equal(r.bot.newest.get('general')?.size ?? 0, 0);
+  assert.equal(r.timers.pending(), 0);
+});
+test('an untagged follow-up is still superseded by a tagged one that arrives before it is handled', async () => {
+  const r = rig();
+  const carol = { from: { user_id: 'carol' } };
+  r.crowd();
+  // Posts are acknowledged by hand, so a message can arrive after the first reply is sent and before the next is handled.
+  r.ws.send = function (raw) { const f = JSON.parse(raw); this.sent.push(f); if (f.method === 'history') queueMicrotask(() => this.emit({ id: f.id, result: { messages: [] } })); };
+  await r.say('hey @bot_me', carol);
+  r.calls[0].answer(judged());
+  await r.timers.tick(0);
+  await r.say('I mean the east side', carol);
+  r.calls[1].answer(content('try Y'));
+  await r.flush();
+  assert.equal(r.posts().length, 1);
+  await r.say('actually never mind @bot_me', carol);
+  r.ws.emit({ id: r.ws.sent.find(f => f.method === 'message').id, result: { message_id: 'p1' } });
+  await r.flush();
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose']);
+  r.calls[2].answer(judged()); r.calls[3].answer(content('ok'));
+  await r.flush();
+  r.ws.emit({ id: r.ws.sent.filter(f => f.method === 'message')[1].id, result: { message_id: 'p2' } });
+  await r.settle();
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.addressed, e.outcome]), [['m1', 'mention', 'replied'], ['m2', 'mention', 'superseded'], ['m3', 'mention', 'replied']]);
+  assert.deepEqual(r.posts().map(p => p.reply_to.message_id), ['m1', 'm3']);
 });
 test('handle() called on its own is never overtaken by a message it has not seen', async () => {
   const r = rig();
