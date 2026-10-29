@@ -360,6 +360,18 @@ test('a chime-in is judged first, and only a yes starts the draft and the typing
   await r.settle();
   assert.deepEqual([r.last().outcome, Object.keys(r.last().ms), r.last().via], ['learned-only', ['judge', 'total'], { judge: 'd' }]);
 });
+test('a prompt that cannot be built leaves no typing notice behind, on or re-arming', async () => {
+  const r = rig();
+  r.bot.notes = () => { throw Error('notes-broken'); };
+  await r.say('hey @bot_me');
+  r.calls[0].answer(judged());
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'notes-broken', 0]);
+  assert.deepEqual(r.typing(), []);
+  await r.timers.tick(60000);
+  assert.deepEqual(r.typing(), []);
+  assert.equal(r.timers.pending(), 0);
+});
 test('the typing notice is renewed every 6 s while drafting, and never sent to a server without activity', async () => {
   const r = rig();
   await r.say('hey @bot_me');
