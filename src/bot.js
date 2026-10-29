@@ -245,10 +245,12 @@ export class Bot {
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     this.prune();
+    const lines = await this.recent(p).catch(() => null) ?? this.context.filter(x => x.room === p.room_id).slice(-8);
+    if (connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const body = {
       model: this.env.CHAT_MODEL, max_tokens: 1500,
       messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
-        { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8), organic) }],
+        { role: 'user', content: roomPrompt(lines, organic) }],
     };
     // The free router picks a model per call, so one retry usually lands on a different one.
     let reply = '', error;
@@ -271,6 +273,26 @@ export class Bot {
     this.context.push({ room: p.room_id, at: this.lastReply, name: 'you', content });
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
     catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
+  }
+  // The room's last messages up to and including p, read from Apron just for this reply and never kept:
+  // what the bot saw live since its last restart is too little to answer from.
+  async recent(p, size = 20) {
+    const page = await this.call('history', { room_id: p.room_id, limit: 40 });
+    const latest = new Map();
+    for (const m of page?.messages ?? []) {
+      const seen = latest.get(m.message_id);
+      if (!seen || BigInt(m.log_id) > BigInt(seen.log_id)) latest.set(m.message_id, m);
+    }
+    const rows = [...latest.values()]
+      .filter(m => !m.deleted && typeof m.body?.text === 'string' && m.body.text.trim() && !m.from?.user_id?.startsWith('~'))
+      .sort((a, b) => (BigInt(a.log_id) < BigInt(b.log_id) ? -1 : 1));
+    if (!rows.length) return null;
+    const upTo = rows.findIndex(m => m.message_id === p.message_id);
+    const window = (upTo < 0 ? [...rows, p] : rows.slice(0, upTo + 1)).slice(-size);
+    return window.map(m => ({
+      name: m.from?.user_id === this.self ? 'you' : (typeof m.from?.name === 'string' && m.from.name.trim().slice(0, 64)) || m.from?.user_id,
+      content: m.body.text.slice(0, 1000),
+    }));
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {

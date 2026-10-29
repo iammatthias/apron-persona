@@ -16,6 +16,7 @@ function socket() {
     send(raw) {
       const frame = JSON.parse(raw); sent.push(frame);
       if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
+      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit({ id: frame.id, result: { messages: this.history ?? [] } }));
     },
   };
 }
@@ -381,4 +382,21 @@ test('a failed or empty reply is tried once more', async () => {
   const empty = connected(async (url, init) => { if (JSON.parse(init.body).temperature !== 0) ++calls; return model({ text: '' })(url, init); });
   assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, style: flat }));
   assert.equal(calls, 2);
+});
+test('a reply is written from the room history Apron holds, up to the message answered', async () => {
+  let prompt;
+  const f = connected(async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.temperature !== 0) prompt = body.messages[1].content;
+    return model()(url, init);
+  });
+  const m = (id, user_id, name, text, extra) => ({ room_id: 'general', message_id: id, log_id: id, from: { user_id, name }, body: { text }, ...extra });
+  const next = String(ids + 1);
+  f.ws.history = [
+    m('50', 'ana', 'Ana', 'is the deploy done'), m('51', 'bot_me', 'Persona', 'it shipped an hour ago'),
+    m('52', 'ben', 'Ben', 'gone', { deleted: true }), m('53', '~room', 'notice', 'joined'),
+    m(next, 'carol', 'Carol', 'hey @bot_me'), m('99999', 'dave', 'Dave', 'after the mention'),
+  ];
+  await deliver(f);
+  assert.equal(prompt.split('\n\n')[0], 'Ana: is the deploy done\nyou: it shipped an hour ago\nCarol: hey @bot_me');
 });
