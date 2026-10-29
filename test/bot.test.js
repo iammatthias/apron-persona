@@ -33,7 +33,7 @@ test('transcript stays in memory and persists only aggregate weights', async () 
 });
 test('there is no call cap unless DAILY_CALLS sets a whole number', () => {
   const left = DAILY_CALLS => new Bot({ ...env, DAILY_CALLS }, { load: () => ({}), save() {} }, { connect: socket }).left();
-  assert.deepEqual(['lots', '', '  ', undefined, null, 'NaN', 'Infinity', '-3', '2.5'].map(left), Array(9).fill(Infinity));
+  assert.deepEqual(['lots', '', '  ', undefined, null, 'NaN', 'Infinity', '-3', '-1', '2.5', '0.5', '1e2x'].map(left), Array(12).fill(Infinity));
   assert.deepEqual([' 12 ', '0', 7].map(left), [12, 0, 7]);
 });
 test('daily budget prevents an upstream request', async () => {

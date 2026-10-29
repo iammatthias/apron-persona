@@ -70,11 +70,11 @@ test('needs you groups each room\'s unanswered mentions with their reasons, then
   const learning = { stage: 'ready', host: 'h', rooms: ['general'], count: 500, failed: 1, detail: 'timeout', persona: 'x', vector: [1, 0, .5, .5] };
   assert.deepEqual(needs({ ...s, learning }), [
     { group: 'room', tone: 'bad', href: '/?view=room&room=general', text: '2 mentions in #general got no answer', misses: [{ who: 'theo', at: at(49), why: 'below the bar' }, { who: 'kofi', at: at(15), why: 'model failed' }] },
-    { group: 'room', tone: 'warn', href: '/?view=room&room=builds', text: '1 mention in #builds got no answer', misses: [{ who: 'mei', at: at(48), why: 'out of calls' }] },
+    { group: 'room', tone: 'warn', href: '/?view=room&room=builds', text: '1 mention in #builds got no answer', misses: [{ who: 'mei', at: at(48), why: 'at your cap' }] },
     { group: 'persona', tone: 'ok', href: '/?view=bot#persona', text: 'a redraft from 500 messages in #general on h is ready to review', why: '1 of my readings failed (timeout), so it leans on the rest.' },
     { group: 'link', tone: 'warn', href: '/?view=plumbing', text: 'the link dropped 3 times in the last hour (close-1006)', why: 'up again for 10 min.' },
     { group: 'disk', tone: 'bad', href: '/?view=plumbing', text: "I couldn't save state.json", at: at(12), why: 'refused 1 time. I carry on and try again.' },
-    { group: 'budget', tone: 'warn', href: '/?view=plumbing', text: "I've spent all 40 calls for today", why: '30 reading messages, 6 writing replies. resets at 00:00 UTC.' },
+    { group: 'budget', tone: 'warn', href: '/?view=plumbing', text: "I've hit the daily cap you set: 40 calls", why: '30 reading messages, 6 writing replies. resets at 00:00 UTC.' },
   ]);
   const down = needs({ ...s, events: [], learning: { stage: 'failed', host: 'h', rooms: ['a', 'b'], detail: 'history-closed' }, status: { ...s.status, connected: false, error: 'apron-auth-denied', budget: { day: '2026-10-28', calls: 3 } } });
   assert.deepEqual(down, [
@@ -120,7 +120,7 @@ test('now has a card per room with its latest decisions, and with one room only 
   assert.deepEqual(view.bot, { persona: 'You are P.', personality: s.status.personality, drift: 'This room has made me warmer and more matter-of-fact than where I started (the tick at 0.5).', triggers: 'I answer mentions and replies at 0.70. I never chime in.' });
   const one = now({ ...s, rooms: ['general'] });
   assert.deepEqual(one.cards, []);
-  assert.deepEqual(one.needs.map(n => n.text), ['2 mentions in #general got no answer', 'the link dropped 3 times in the last hour (close-1006)', "I couldn't save state.json", "I've spent all 40 calls for today"]);
+  assert.deepEqual(one.needs.map(n => n.text), ['2 mentions in #general got no answer', 'the link dropped 3 times in the last hour (close-1006)', "I couldn't save state.json", "I've hit the daily cap you set: 40 calls"]);
   assert.equal(now({ ...s, settings: { ...s.settings, reply_mentions: false, organic: true } }).bot.triggers, 'I answer replies to me at 0.70. I chime in at 0.90.');
 });
 test('a room page folds quiet runs, holds only its own posts, and keeps churn out', () => {

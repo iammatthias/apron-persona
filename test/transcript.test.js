@@ -52,7 +52,7 @@ test('the view model turns events into each room\'s rows with a margin per outco
     quiet(7, 'rate-limited', 'ben', 'already learned from ben in the last 5 min.'),
     quiet(8, 'duplicate', 'ben', "I'd seen this exact text already."),
     said(9, 'declined', 'ana', '@bot summarize?', "didn't answer. reply chance 0.42, I need 0.75.", 'warn'),
-    said(11, 'budget', 'ben', '@bot hi', "I'm out of calls for today, so I let it pass.", 'warn'),
+    said(11, 'budget', 'ben', '@bot hi', "I hit the daily cap you set (DAILY_CALLS), so I let it pass.", 'warn'),
     said(12, 'classify-failed', 'ben', '@bot one', "I couldn't size it up. the model call failed (inference-500).", 'bad'),
     said(13, 'reply-empty', 'ben', '@bot two', 'the model returned nothing, so I stayed quiet.', 'bad'),
     said(14, 'reply-failed', 'lin', '@bot tabs?', 'I tried, but the model call failed (inference-502).', 'bad'),
