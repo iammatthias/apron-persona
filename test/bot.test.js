@@ -601,6 +601,32 @@ test("the bot's owner is never rested, however long they keep talking to it alon
   assert.deepEqual(outcomes, Array(9).fill('replied'));
   assert.equal(posts(f.ws).length, 9);
 });
+test('two senders taking turns with the bot draw at most six of its posts in any eighteen messages, however they alternate', async () => {
+  const f = connected(model());
+  const outcomes = [(await deliver(f, { from: { user_id: 'ada' } }, 'hey @bot_me'))[0].outcome];
+  for (let i = 1; i < 20; ++i) outcomes.push((await replyTo(f, i % 2 ? 'ben' : 'ada', `and then ${i}`))[0].outcome);
+  assert.deepEqual(outcomes, [...Array(6).fill('replied'), ...Array(8).fill('looping'), ...Array(6).fill('replied')]);
+  assert.equal(posts(f.ws).length, 12);
+  // The room as it went: each message, then the bot's post where it answered. No eighteen in a row hold more than six of its.
+  const room = outcomes.flatMap(o => o === 'replied' ? ['them', 'me'] : ['them']);
+  for (let i = 0; i + 18 <= room.length; ++i) assert.ok(room.slice(i, i + 18).filter(x => x === 'me').length <= 6, `messages ${i} to ${i + 18}`);
+});
+test("a room the bot is resting in still answers its owner at no cost to the others, and a third party's chatter lets it pick up again", async () => {
+  let calls = 0;
+  const f = connected(async (...a) => { ++calls; return model()(...a); });
+  await deliver(f, { from: { user_id: 'ada' } }, 'hey @bot_me');
+  for (let i = 1; i < 6; ++i) await replyTo(f, i % 2 ? 'ben' : 'ada', `and then ${i}`);
+  assert.deepEqual([posts(f.ws).length, calls], [6, 12]);
+  assert.equal((await replyTo(f, 'ben', 'still there?'))[0].outcome, 'looping');
+  assert.equal((await replyTo(f, 'me', 'are you resting?'))[0].outcome, 'replied');
+  assert.equal((await replyTo(f, 'ada', 'and me?'))[0].outcome, 'looping');
+  assert.deepEqual([posts(f.ws).length, calls], [7, 14]);
+  const chatter = [];
+  for (const text of ['what did I miss', 'a lot it seems', 'anyway', 'lunch?']) chatter.push((await deliver(f, { from: { user_id: 'erin' } }, text))[0].outcome);
+  assert.deepEqual(chatter, ['learned-only', 'rate-limited', 'rate-limited', 'rate-limited']);
+  assert.equal((await replyTo(f, 'ada', 'so, where were we'))[0].outcome, 'replied');
+  assert.deepEqual([posts(f.ws).length, calls], [8, 17]);
+});
 test('the owner is who the server says, or failing that whoever the bot_ prefix names', () => {
   const named = fixture(model());
   named.bot.tick(); named.ws.emit({ method: 'server', params: {} });
