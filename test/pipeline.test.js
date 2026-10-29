@@ -17,9 +17,11 @@ function rig({ capabilities = ['activity'], calls = '40' } = {}) {
   ws.emit({ method: 'server', params: { capabilities } });
   ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
   let n = 0;
+  // Settles what is ready without waiting for calls still in flight; settle() waits for the whole queue.
+  const flush = async () => { for (let i = 0; i < 4; ++i) await timers.tick(0); };
   const say = async (text, params = {}) => {
     ws.emit({ method: 'message', params: { room_id: 'general', message_id: `m${++n}`, from: { user_id: `u${n}` }, body: { text }, ...params } });
-    for (let i = 0; i < 4; ++i) await timers.tick(0);
+    await flush();
   };
   const settle = async () => { await timers.tick(0); await bot.queue; await timers.tick(0); };
   const last = () => { const { at, kind, ...e } = bot.log.list().filter(e => e.kind === 'message').at(-1); return e; };
@@ -29,7 +31,7 @@ function rig({ capabilities = ['activity'], calls = '40' } = {}) {
   const roles = () => l.calls.map(c => c.body.temperature === 0 ? 'judge' : 'compose');
   // Someone else spoke here lately, so a lone sender is not taken as talking to the bot.
   const crowd = () => bot.heard.set('general', new Map([['u_other', Date.now()]]));
-  return { bot, ws, timers, calls: l.calls, sent: l.sent, say, settle, last, typing, posts, history, roles, crowd };
+  return { bot, ws, timers, calls: l.calls, sent: l.sent, say, flush, settle, last, typing, posts, history, roles, crowd };
 }
 test('a mention has its history read, its judge and its draft in flight together; the verdict gates only the post', async () => {
   const r = rig();
@@ -183,6 +185,65 @@ test("the owner's sequence: answered, then answered again three seconds later, n
   await r.settle();
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), ['replied', 'replied']);
   assert.deepEqual(r.posts().map(p => p.body.text), ['double whats up. you okay?', 'I did, look up']);
+});
+test('a burst from one sender is answered once, to the latest message, with the rest superseded', async () => {
+  const r = rig();
+  const carol = { from: { user_id: 'carol' } };
+  await r.say('hey @bot_me', carol);
+  r.calls[0].answer(judged());
+  await r.timers.tick(0);
+  await r.say('wait @bot_me', carol);
+  assert.equal(r.calls[1].aborted, 'superseded');
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose']);
+  await r.say('actually @bot_me', carol);
+  assert.deepEqual(r.calls.slice(2, 4).map(c => c.aborted), ['superseded', 'superseded']);
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose', 'judge', 'compose']);
+  r.calls[4].answer(judged()); r.calls[5].answer(content('here you go'));
+  await r.settle();
+  assert.deepEqual(r.posts(), [{ room_id: 'general', body: { text: 'here you go' }, reply_to: { message_id: 'm3' } }]);
+  const events = r.bot.log.list().filter(e => e.kind === 'message').map(({ at, kind, ms, via, ...e }) => e);
+  assert.deepEqual(events, [
+    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me', outcome: 'superseded', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5] },
+    { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'wait @bot_me', outcome: 'superseded' },
+    { room: 'general', message_id: 'm3', from: 'carol', addressed: 'mention', text: 'actually @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9 },
+  ]);
+  assert.equal(r.calls[5].body.messages[1].content.split('\n\n')[0], 'carol: hey @bot_me\ncarol: wait @bot_me\ncarol: actually @bot_me');
+  assert.deepEqual(r.typing(), [8, 0, 8, 0, 8, 0]);
+  assert.equal(r.timers.pending(), 0);
+});
+test('a burst whose later messages arrive before the first is drafted costs no calls for the superseded ones', async () => {
+  const r = rig();
+  const carol = { from: { user_id: 'carol' } };
+  r.ws.emit({ method: 'message', params: { room_id: 'general', message_id: 'b1', from: { user_id: 'carol' }, body: { text: 'one @bot_me' } } });
+  r.ws.emit({ method: 'message', params: { room_id: 'general', message_id: 'b2', from: { user_id: 'carol' }, body: { text: 'two @bot_me' } } });
+  await r.say('three @bot_me', carol);
+  assert.deepEqual(r.roles(), ['judge', 'compose']);
+  r.calls[0].answer(judged()); r.calls[1].answer(content('three it is'));
+  await r.settle();
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['b1', 'superseded'], ['b2', 'superseded'], ['m1', 'replied']]);
+  assert.deepEqual(r.posts().map(p => p.reply_to.message_id), ['m1']);
+});
+test('handle() called on its own is never overtaken by a message it has not seen', async () => {
+  const r = rig();
+  const done = r.bot.handle({ room_id: 'general', message_id: 'direct', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } });
+  await r.flush();
+  r.calls[0].answer(judged()); r.calls[1].answer(content('yo'));
+  assert.equal((await done).outcome, 'replied');
+});
+test('a second sender waits for the reply in flight, then is answered', async () => {
+  const r = rig();
+  await r.say('hey @bot_me', { from: { user_id: 'carol' } });
+  r.calls[0].answer(judged());
+  await r.timers.tick(0);
+  await r.say('me too @bot_me', { from: { user_id: 'dave' } });
+  assert.deepEqual([r.roles(), r.calls[1].aborted], [['judge', 'compose'], null]);
+  r.calls[1].answer(content('hi carol'));
+  await r.flush();
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose']);
+  r.calls[2].answer(judged()); r.calls[3].answer(content('hi dave'));
+  await r.settle();
+  assert.deepEqual(r.posts().map(p => [p.body.text, p.reply_to.message_id]), [['hi carol', 'm1'], ['hi dave', 'm2']]);
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), ['replied', 'replied']);
 });
 test('a chime-in waits while the bot spoke last, and goes ahead once someone else has spoken', async () => {
   const r = rig();

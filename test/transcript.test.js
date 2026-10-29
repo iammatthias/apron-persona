@@ -36,6 +36,7 @@ const events = [
   msg(31, 'chimed-in', { text: 'anyone tried the new ramen place', learn_p: .9, reply_p: .93 }),
   { at: 32, kind: 'posted', room: 'general', message_id: 'p32', organic: true, text: 'the broth is the whole point' },
   msg(33, 'spoke-last', { learn_p: .9, reply_p: .95, point_p: .95 }),
+  msg(34, 'superseded', { name: 'ana', addressed: 'mention', text: '@bot wait', learn_p: .9, reply_p: .9 }),
   { at: 36, kind: 'settings', keys: ['organic', 'reply_threshold', 'reply_mentions', 'reply_replies', 'organic_threshold'], organic: true, reply_threshold: .75, reply_mentions: false, reply_replies: true, organic_threshold: .95 },
   { at: 37, kind: 'settings', keys: ['organic', 'reply_mentions', 'reply_replies'], organic: false, reply_mentions: true, reply_replies: false },
 ];
@@ -71,6 +72,7 @@ test('the view model turns events into each room\'s rows with a margin per outco
     { ...said(31, 'ben', 'anyone tried the new ramen place', "chimed in unprompted. I was 0.93 sure it'd be welcome.", 'ok'), unanswered: false },
     { kind: 'post', at: 32, room: 'general', message_id: 'p32', text: 'the broth is the whole point', deleted: false, margin: 'something I chimed in with.' },
     quiet(33, 'ben', "I'd just said something here, so I let others talk."),
+    { ...said(34, 'ana', '@bot wait', 'you kept going, so I answered your latest.'), unanswered: false },
     { kind: 'break', at: 36, text: 'you let me chime in on my own, you set my reply bar to 0.75, you stopped me answering mentions, you let me answer replies to me, you set my chime-in bar to 0.95' },
     { kind: 'break', at: 37, text: 'you stopped me chiming in, you let me answer mentions, you stopped me answering replies to me' },
   ];

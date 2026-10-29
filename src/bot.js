@@ -10,7 +10,7 @@ const TTL = 300000;
 // stands in; a typing notice is renewed every TYPING ms while a reply is drafted.
 const DEADLINE = 25000, CONTEXT = 3000, TYPING = 6000;
 // Failures that are outcomes in their own right, with no detail to add.
-const plain = new Set(['budget', 'stale', 'reply-empty']);
+const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
   constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000, timers = models.real } = {}) {
@@ -26,7 +26,7 @@ export class Bot {
     this.settings = restore(saved);
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.spoke = new Set(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
+    this.bots = new Set(); this.own = new Set(); this.spoke = new Set(); this.newest = new Map(); this.drafting = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
@@ -196,6 +196,12 @@ export class Bot {
       const text = engaged => engaged && typeof p.body?.text === 'string' ? p.body.text.slice(0, 2000) : undefined;
       const skip = incoming(p, this.self, this.bots, this.rooms) ?? (!this.ready ? 'stale' : this.settings.paused ? 'paused' : this.pending >= 4 ? 'busy' : null);
       if (skip) return this.record('message', { ...seen, text: text(addressed), outcome: skip });
+      // A sender's latest message to the bot is the one answered: an older one still being drafted is superseded.
+      if (addressed) {
+        const latest = this.newest.get(p.room_id) ?? new Map();
+        latest.set(p.from.user_id, p.message_id); this.newest.set(p.room_id, latest);
+        this.drafting.get(p.room_id)?.(p.from.user_id);
+      }
       ++this.pending;
       this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
         .then(({ posted, respond, topic, ...result }) => {
@@ -267,6 +273,8 @@ export class Bot {
     const spokeLast = this.spoke.delete(p.room_id);
     const early = trigger(this.settings, { addressed, eligible });
     if (early) return { outcome: early.outcome };
+    const latest = this.newest.get(p.room_id)?.get(p.from.user_id);
+    if (addressed && latest !== undefined && latest !== p.message_id) return { outcome: 'superseded' };
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
     const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
     const asked = async (role, body, parse) => {
@@ -277,12 +285,17 @@ export class Bot {
     const deadline = this.timers.setTimeout(() => run.abort(Error('deadline')), DEADLINE);
     const stale = () => run.abort(Error('stale'));
     connection.addEventListener('close', stale); connection.addEventListener('error', stale);
+    // This room's one draft in flight, which the sender's next message supersedes until the reply is on its way.
+    let posting = false;
+    const slot = user => { if (user === p.from.user_id && !posting) run.abort(Error('superseded')); };
+    this.drafting.set(p.room_id, slot);
     try {
-      const result = await this.pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal: run.signal, timed, asked });
+      const result = await this.pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
       return { ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} };
     } finally {
       run.abort(Error('settled'));
+      if (this.drafting.get(p.room_id) === slot) this.drafting.delete(p.room_id);
       this.timers.clearTimeout(deadline);
       connection.removeEventListener('close', stale); connection.removeEventListener('error', stale);
     }
@@ -290,7 +303,7 @@ export class Bot {
   // The stages: context (the room's history), judge (the classifier) and compose (the reply) run together for a
   // message that addresses the bot, and the judge's verdict gates only the post, so a decline aborts the draft.
   // For any other message the judge decides first whether a reply is drafted at all.
-  async pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal, timed, asked }) {
+  async pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal, timed, asked, post }) {
     const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
     // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot spoke last), nothing is read or drafted ahead.
     const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, spokeLast }).respond;
@@ -323,7 +336,7 @@ export class Bot {
     try { result = await asked('judge', { max_tokens: 1500, temperature: 0, messages: classify(text) }, decision); }
     catch (e) {
       // Someone talking to the bot gets an answer even when sizing the message up failed; it just learns nothing.
-      if (!addressed || e.message === 'budget') return failed('classify-failed', e);
+      if (!addressed || plain.has(e.message)) return failed('classify-failed', e);
       unsized = e.message;
       result = { learn: 0, reply: 1, vector: null };
     }
@@ -343,6 +356,7 @@ export class Bot {
     try { reply = await compose; } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const content = reply.slice(0, 1800);
+    post();
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
     const at = Date.now();
