@@ -33,6 +33,9 @@ export class Bot {
     // Per room: who has been speaking since anyone else did (user), how many posts the bot has made since (turns), and
     // how many messages from others have followed the bot's last post (since).
     this.talk = new Map();
+    // Watched rooms the server refused this sign-in, with what it said. Asking again for a room it refused drew
+    // "Repeated policy violations" and a dropped connection, so one is left alone until the next sign-in tries it again.
+    this.unavailable = new Map();
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
@@ -83,13 +86,19 @@ export class Bot {
       const abort = () => end(signal.reason);
       const timer = this.timers.setTimeout(() => end(Error('timeout')), 10000);
       signal?.addEventListener('abort', abort);
-      this.waiting.set(id, frame => end(frame.error ? Error(frame.error.message || 'apron-request-failed') : null, frame.result));
+      this.waiting.set(id, frame => end(frame.error ? Object.assign(Error(frame.error.message || 'apron-request-failed'), { refused: true }) : null, frame.result));
       this.send(method, params, id);
     });
   }
-  // The bot's own live messages, newest first, read from Apron and never stored.
+  // Remembers a room the server answered with an error, as opposed to a request that timed out or found no connection.
+  refuse(room_id, e) {
+    if (e.refused) this.unavailable.set(room_id, e.message.slice(0, 200));
+  }
+  // The bot's own live messages, newest first, read from Apron and never stored. A room whose history the server
+  // refuses is left out from then on; any other failure fails the read.
   async posts() {
-    const pages = await Promise.all(this.rooms.map(room_id => this.call('history', { room_id, limit: 200 })));
+    const open = this.rooms.filter(room_id => !this.unavailable.has(room_id));
+    const pages = await Promise.all(open.map(room_id => this.call('history', { room_id, limit: 200 }).catch(e => { this.refuse(room_id, e); if (!e.refused) throw e; return null; })));
     // History holds every snapshot of a message; only the newest one counts.
     const latest = new Map();
     for (const m of pages.flatMap(p => p?.messages ?? [])) {
@@ -234,7 +243,8 @@ export class Bot {
   authed(you) {
     this.self = you.user_id; this.you = you; this.ready = true; this.error = null; this.since = Date.now();
     this.record('connected', { host: new URL(this.env.APRON_URL).host, user_id: this.self });
-    for (const room_id of this.rooms) this.send('room_join', { room_id });
+    this.unavailable.clear();
+    for (const room_id of this.rooms) this.call('room_join', { room_id }).catch(e => this.refuse(room_id, e));
   }
   prune() {
     const now = Date.now();
@@ -422,7 +432,8 @@ export class Bot {
   // The room's last messages up to and including p, read from Apron just for this reply and never kept:
   // what the bot saw live since its last restart is too little to answer from.
   async recent(p, signal, size = recall.lines) {
-    const page = await this.call('history', { room_id: p.room_id, limit: 40 }, signal);
+    if (this.unavailable.has(p.room_id)) return null;
+    const page = await this.call('history', { room_id: p.room_id, limit: 40 }, signal).catch(e => { this.refuse(p.room_id, e); throw e; });
     const latest = new Map();
     for (const m of page?.messages ?? []) {
       const seen = latest.get(m.message_id);

@@ -638,7 +638,7 @@ test('a room the server refuses is left alone until the next sign-in, and needs 
   assert.deepEqual(ws.sent.filter(f => f.method === 'history').map(f => f.params.room_id), ['general']);
   assert.equal(await bot.recent({ room_id: 'ghost', message_id: 'x' }), null);
   assert.deepEqual(ws.sent.filter(f => f.method === 'history').map(f => f.params.room_id), ['general']);
-  assert.deepEqual(needs(await snapshot(bot)).map(n => [n.text, n.why]), [["#ghost doesn't exist or I can't see it", 'the server said "Room does not exist" when I tried to join. I\'ll try again when I next sign in.']]);
+  assert.deepEqual(needs(await snapshot(bot)).map(n => [n.text, n.why]), [["#ghost doesn't exist or I can't see it", 'the server said "Room does not exist". I\'ll try again when I next sign in.']]);
   // A room that joined but whose history the server then refuses is marked the same way, and the others still read.
   ws.refuse.add('general');
   assert.deepEqual(await bot.posts(), []);

@@ -45,7 +45,7 @@ function stream(log, signal, every) {
 export async function snapshot(bot, { posts = false } = {}) {
   const now = Date.now(), today = dayOf(now);
   return {
-    name: bot.name, now, rooms: bot.rooms, events: bot.log.list(), status: bot.status(), spent: bot.spent, limit: bot.env.DAILY_CALLS,
+    name: bot.name, now, rooms: bot.rooms, unavailable: Object.fromEntries(bot.unavailable), events: bot.log.list(), status: bot.status(), spent: bot.spent, limit: bot.env.DAILY_CALLS,
     settings: bot.settings, details: bot.details(), lastError: bot.lastError, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null,
     memory: bot.rooms.map(id => ({ id, notes: bot.notes(id), week: week(bot.memory, id, today) })),
     posts: posts ? await bot.posts().catch(e => ({ error: e.message })) : [],
