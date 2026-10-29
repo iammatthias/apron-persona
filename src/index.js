@@ -24,8 +24,9 @@ const tick = () => {
 };
 tick();
 setInterval(tick, 60000);
-Bun.serve({ port: +env.PORT, fetch: site(bot) });
+// development: false keeps Bun's debug error page, which shows source, off both listeners.
+Bun.serve({ port: +env.PORT, development: false, fetch: site(bot) });
 // The admin portal has no login: bind it only behind a tailnet-only site.
-Bun.serve({ port: +env.MOD_PORT, fetch: admin(bot, (url, token) => write('apron.json', { url, token }, 0o600)) });
+Bun.serve({ port: +env.MOD_PORT, development: false, fetch: admin(bot, (url, token) => write('apron.json', { url, token }, 0o600)) });
 const stop = () => { if (bot.dirty) bot.save(); bot.ws?.close(); process.exit(0); };
 process.on('SIGTERM', stop); process.on('SIGINT', stop);

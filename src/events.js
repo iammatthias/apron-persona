@@ -96,10 +96,11 @@ const changes = {
   organic: toggled('you let me chime in on my own', 'you stopped me chiming in'),
   organic_threshold: v => `you set my chime-in bar to ${p2(v)}`,
   norms: () => "you rewrote a room's norms",
+  owner: () => 'you changed who my owner is',
 };
 // The quiet break each owner event draws across every room's transcript.
 export const breaks = {
-  settings: e => e.keys.map(k => changes[k](e[k])).join(', '),
+  settings: e => e.keys.map(k => changes[k]?.(e[k]) ?? `you changed ${k}`).join(', '),
   taught: e => `you taught me the room's voice (${plural(e.count, 'message')})`,
 };
 // Each line of the connection log; tone marks the ones that went wrong.

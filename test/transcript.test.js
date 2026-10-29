@@ -149,3 +149,9 @@ test('a reply with spans says how long it took, carries the breakdown as a toolt
   const ten = Array.from({ length: 10 }, (_, i) => msg(10 + i, 'replied', { addressed: 'mention', text: 'x', reply_p: .9, ms: { total: (i + 1) * 100 } }));
   assert.deepEqual(today(ten.map(e => ({ ...e, at: day + e.at })), day + 100).speed, { median: 500, p90: 900, n: 10 });
 });
+test('every setting has a phrase for its break, so saving one can never break the portal', async () => {
+  const { settings } = await import('../src/settings.js');
+  const { breaks } = await import('../src/events.js');
+  for (const k of Object.keys(settings)) assert.ok(!breaks.settings({ keys: [k], [k]: settings[k].default() }).startsWith('you changed ' + k), k);
+  assert.equal(breaks.settings({ keys: ['someday'] }), 'you changed someday');
+});
