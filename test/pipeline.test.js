@@ -1,6 +1,7 @@
 import { test, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
+import { margins } from '../src/events.js';
 import { clock, lab, socket } from './fakes.js';
 import { snapshot } from '../src/http.js';
 import { bot as thinking } from '../src/views.js';
@@ -139,6 +140,34 @@ test('the deadline ends a message that is still drafting: reply-failed, deadline
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'total']);
   assert.deepEqual(r.typing(), [8, 8, 8, 8, 8, 0]);
   assert.equal(r.timers.pending(), 0);
+});
+test('a reply the deadline ends before it is posted is not remembered as said, answered or spoken', async () => {
+  const r = rig();
+  r.bot.models = { ...r.bot.models, judge: { ...r.bot.models.judge, timeout: 60000, hedge: null } };
+  await r.say('hey @bot_me');
+  r.calls[1].answer(content('yo'));
+  await r.timers.tick(25000);
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'deadline', 0]);
+  assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
+  assert.equal(r.bot.answered.get('general')?.size ?? 0, 0);
+  assert.equal(r.bot.talk.get('general').turns, 0);
+});
+test('a reply that was sent but never acknowledged is recorded as posted, without an id, and the margin says so', async () => {
+  const r = rig();
+  r.ws.send = function (raw) { const f = JSON.parse(raw); this.sent.push(f); if (f.method === 'history') queueMicrotask(() => this.emit({ id: f.id, result: { messages: [] } })); };
+  await r.say('hey @bot_me');
+  r.calls[0].answer(judged()); r.calls[1].answer(content('yo'));
+  await r.flush();
+  assert.equal(r.posts().length, 1);
+  await r.timers.tick(10000);
+  await r.settle();
+  const { ms, ...e } = r.last();
+  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5], detail: 'post-timeout', via: { judge: 'd', compose: 'c' } });
+  const { at, ...posted } = r.bot.log.list().findLast(x => x.kind === 'posted');
+  assert.deepEqual(posted, { kind: 'posted', room: 'general', reply_to: 'm1', text: 'yo' });
+  assert.equal(margins.replied.say({ reply_p: .9, detail: 'post-timeout', ms: { total: 10000 } }), 'answered in 10.0s, though the server never confirmed it (post-timeout).');
+  assert.deepEqual(r.bot.context.filter(x => x.name === 'you').map(x => x.content), ['yo']);
 });
 test('losing the connection aborts every call in flight and the message is stale', async () => {
   const r = rig();
