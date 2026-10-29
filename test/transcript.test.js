@@ -69,7 +69,7 @@ test('the view model turns events into each room\'s rows with a margin per outco
     said(31, 'chimed-in', 'ben', 'anyone tried the new ramen place', "chimed in unprompted. I was 0.93 sure it'd be welcome.", 'ok'),
     { kind: 'post', at: 32, room: 'general', message_id: 'p32', text: 'the broth is the whole point', deleted: false, margin: 'something I chimed in with.' },
     row(33, 'spoke-last', 'ben', "I'd said something here only a few messages ago, so I let others talk."),
-    { ...said(34, 'superseded', 'ana', '@bot wait', 'you kept going, so I answered your latest.'), unanswered: false },
+    said(34, 'superseded', 'ana', '@bot wait', 'you kept going, so I moved on to your latest.'),
     { kind: 'break', at: 36, text: 'you let me chime in on my own, you set my reply bar to 0.75, you stopped me answering mentions, you let me answer replies to me, you set my chime-in bar to 0.95' },
     { kind: 'break', at: 37, text: 'you stopped me chiming in, you let me answer mentions, you stopped me answering replies to me' },
   ];
@@ -103,6 +103,9 @@ test('every outcome has a margin, and a learned style names its strongest lean',
   assert.equal(learned([.5, .5, .5, .5]), 'learned. no lean either way. (0.80)');
   assert.equal(margins['nothing-to-add'].say({ reply_p: .95, point_p: .42, need: .9 }), 'could have chimed in, but I had nothing specific to add (0.42).');
   assert.equal(outcomes['nothing-to-add'], 'Not addressed; nothing specific to add');
+  // A superseded message claims no answer: whether the later one was answered is its own row.
+  assert.equal(margins.superseded.say({}), 'you kept going, so I moved on to your latest.');
+  assert.equal(margins.superseded.answered, undefined);
 });
 test('a post deleted later loses its delete, and a message that did not engage the bot has no text', () => {
   const [general] = transcript(events, ['general']).rooms;
@@ -113,8 +116,8 @@ test('a post deleted later loses its delete, and a message that did not engage t
 test('today counts replies, unanswered mentions and things learned since midnight UTC', () => {
   const day = Date.UTC(2026, 9, 28), at = n => day + n;
   const shifted = [{ ...events[1], at: day - 1 }, ...events.slice(2).map(e => ({ ...e, at: at(e.at) }))];
-  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 8, learned: 2, read: 20, speed: null });
-  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 8, learned: 2, read: 20, speed: null });
+  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 9, learned: 2, read: 20, speed: null });
+  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 9, learned: 2, read: 20, speed: null });
   assert.deepEqual(today([], at(100)), { since: at(100), replies: 0, unanswered: 0, learned: 0, read: 0, speed: null });
 });
 test('a reply with spans says how long it took, carries the breakdown as a tooltip, and feeds the day\'s median and p90', () => {
