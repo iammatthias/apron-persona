@@ -133,7 +133,7 @@ export function bot(s, id) {
   const count = (...outcomes) => day.filter(e => outcomes.includes(e.outcome)).length;
   const pick = (...keys) => Object.fromEntries(keys.map(k => [k, set[k]]));
   return { room: id, rooms: s.rooms, sections: [
-    { id: 'answer', part: 'gate', title: 'do I answer when asked?', settings: pick('reply_mentions', 'reply_replies', 'reply_threshold'),
+    { id: 'answer', part: 'gate', title: 'do I answer when asked?', settings: pick('reply_mentions', 'reply_replies', 'reply_threshold', 'owner'),
       why: "a mention, a reply to me, or the next line from someone I'm talking with. a model call scores how well a reply would fit, and I answer when the score clears the bar. if someone keeps going, I answer their latest.",
       today: { answered: count('replied'), not: today(s.events, s.now).unanswered } },
     { id: 'chime', part: 'gate', title: 'do I speak up unprompted?', settings: pick('organic', 'organic_threshold'),

@@ -136,7 +136,7 @@ test('how I think lists the gate, then each prompt part as it is sent, for the c
     ['answer', 'gate', 'do I answer when asked?'], ['chime', 'gate', 'do I speak up unprompted?'], ['persona', 'prompt', 'who I am'], ['traits', 'prompt', 'what the room made me'],
     ['room', 'prompt', 'what I know about the room'], ['rules', 'prompt', 'the fixed rules'], ['lines', 'prompt', 'the last lines']]);
   const [answer, chimes, persona, traits, notes, rules, lines] = view.sections;
-  assert.deepEqual([answer.settings, answer.today], [{ reply_mentions: true, reply_replies: true, reply_threshold: .7 }, { answered: 1, not: 3 }]);
+  assert.deepEqual([answer.settings, answer.today], [{ reply_mentions: true, reply_replies: true, reply_threshold: .7, owner: '' }, { answered: 1, not: 3 }]);
   assert.deepEqual([chimes.settings, chimes.today], [{ organic: true, organic_threshold: .9 }, { chimed: 0, held: 0 }]);
   assert.deepEqual([persona.persona, persona.sent, persona.lesson], ['You are {name}.', 'You are P.', null]);
   assert.equal(traits.sent, "Match the room's temperament: it runs a little warmer than a typical chat.");
@@ -155,4 +155,8 @@ test('plumbing logs connects, drops and errors newest first, and lists what was 
     [at(45), 'warn', 'lost the server (close-1006)'], [at(900), 'warn', 'lost the server (close-1006)']]);
   assert.deepEqual(view.elsewhere.map(r => [r.who, r.room, r.margin]), [['zed', 'nowhere', 'not a room I watch.']]);
   assert.deepEqual([view.server, view.you, view.speed], [{ agent: 'a/9' }, { user_id: 'bot_me', avatar: 'https://h/a.png' }, { median: 1400, p90: 1400, n: 1 }]);
+});
+test('the answer card carries the saved owner, so the form shows it', () => {
+  const view = bot({ ...s, settings: { ...s.settings, owner: 'matthias' } }, 'general');
+  assert.equal(view.sections.find(x => x.id === 'answer').settings.owner, 'matthias');
 });
