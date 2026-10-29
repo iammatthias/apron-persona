@@ -1,6 +1,5 @@
 import { margins, breaks, secs, stages } from './events.js';
 const who = e => e.name ?? e.from ?? 'someone';
-const hhmm = at => new Date(at).toISOString().slice(11, 16);
 // What a reply's time went on and who answered, for its margin's tooltip.
 const timing = e => [
   ...stages.filter(k => e.ms[k] !== undefined).map(k => `${k} ${secs(e.ms[k])}`),
@@ -40,7 +39,7 @@ export function transcript(events, rooms) {
     } else if (e.kind === 'disconnected') {
       down ??= e.at;
     } else if (e.kind === 'connected') {
-      if (down !== null && e.at - down > MISSED) all({ kind: 'break', at: e.at, tone: 'warn', text: `offline ${hhmm(down)} to ${hhmm(e.at)}. anything said then I missed.` });
+      if (down !== null && e.at - down > MISSED) all({ kind: 'break', at: e.at, tone: 'warn', text: `back after ${Math.round((e.at - down) / 60000)} min offline. anything said then I missed.` });
       down = null;
     }
   }

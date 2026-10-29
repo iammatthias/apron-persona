@@ -9,7 +9,6 @@ import { dayOf } from './memory.js';
 // memory, posts }: memory holds each watched room's { id, notes, week }, and posts is the bot's live posts or { error }.
 const HOUR = 3600000, FLAKY = 3;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
-const hhmm = at => new Date(at).toISOString().slice(11, 16);
 const midnight = now => new Date(now).setUTCHours(0, 0, 0, 0);
 const memo = (s, id) => s.memory.find(m => m.id === id);
 export const href = ({ view, room }) => view === 'now' ? '/' : `/?view=${view}${room ? `&room=${encodeURIComponent(room)}` : ''}`;
@@ -47,22 +46,23 @@ export function tabs(s, place) {
 const where = l => `${list(l.rooms.map(r => `#${r}`))} on ${l.host}`;
 const writes = { 'state-refused': 'state.json', 'status-refused': 'status.json' };
 // What needs the owner, grouped and in this order: each room's unanswered mentions as one item, a redraft to review,
-// a link that is down or flapping, a refused write, and a spent budget. Empty most days.
+// a link that is down or flapping, a refused write, and a spent budget. Empty most days. An item has a why, or for a
+// room the misses that make it up; at is when it last happened, if that matters.
 export function needs(s) {
   const out = [], c = calls(s), l = link(s), learning = s.learning;
   for (const { id, rows } of missed(s)) {
     if (!rows.length) continue;
     out.push({ group: 'room', tone: rows.some(r => r.tone === 'bad') ? 'bad' : 'warn', href: href({ view: 'room', room: id }),
-      text: `${plural(rows.length, 'mention')} in #${id} got no answer`, why: rows.map(r => `${r.who} ${hhmm(r.at)}, ${margins[r.outcome].miss ?? r.outcome}`).join(' · ') });
+      text: `${plural(rows.length, 'mention')} in #${id} got no answer`, misses: rows.map(r => ({ who: r.who, at: r.at, why: margins[r.outcome].miss ?? r.outcome })) });
   }
   if (learning?.stage === 'ready') out.push({ group: 'persona', tone: 'ok', href: '/?view=bot#persona', text: `a redraft from ${plural(learning.count, 'message')} in ${where(learning)} is ready to review`,
     why: learning.failed ? `${learning.failed} of my readings failed (${learning.detail}), so it leans on the rest.` : 'apply or discard it under who I am.' });
   if (learning?.stage === 'failed') out.push({ group: 'persona', tone: 'bad', href: '/?view=bot#persona', text: `I couldn't redraft from history in ${where(learning)}`, why: learning.detail });
   if (l.state === 'down') out.push({ group: 'link', tone: 'bad', href: '/?view=plumbing', text: `I'm not connected (${l.error})`, why: l.drops ? `${plural(l.drops, 'drop')} in the last hour.` : '' });
-  else if (l.drops >= FLAKY) out.push({ group: 'link', tone: 'warn', href: '/?view=plumbing', text: `the link dropped ${l.drops} times in the last hour (${l.reason})`, why: l.up === null ? '' : `up again for ${Math.round(l.up / 60000)} min.` });
+  else if (l.drops >= FLAKY) out.push({ group: 'link', tone: 'warn', href: '/?view=plumbing', text: `the link dropped ${l.drops} times in the last hour (${l.reason})`, why: l.up === null ? '' : `up again for ${l.up < 60000 ? 'under a minute' : `${Math.round(l.up / 60000)} min`}.` });
   for (const [code, file] of Object.entries(writes)) {
     const refused = s.events.filter(e => e.kind === 'error' && e.code === code);
-    if (refused.length) out.push({ group: 'disk', tone: 'bad', href: '/?view=plumbing', text: `I couldn't save ${file}`, why: `refused ${plural(refused.length, 'time')}, last at ${hhmm(refused.at(-1).at)} UTC. I carry on and try again.` });
+    if (refused.length) out.push({ group: 'disk', tone: 'bad', href: '/?view=plumbing', text: `I couldn't save ${file}`, at: refused.at(-1).at, why: `refused ${plural(refused.length, 'time')}. I carry on and try again.` });
   }
   if (c.total >= c.limit) out.push({ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: c.limit ? `I've spent all ${c.limit} calls for today` : 'DAILY_CALLS is 0, so I make no calls today',
     why: c.limit ? `${c.by.filter(r => r.calls).map(r => `${r.calls} ${r.label}`).join(', ') || 'none sorted by role'}. resets at 00:00 UTC.` : '' });

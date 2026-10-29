@@ -68,7 +68,7 @@ nav.top a{text-decoration:none;padding:6px 12px;color:var(--muted);border-bottom
 .traits i{height:4px;background:var(--line);border-radius:2px;position:relative}.traits i::after{content:"";position:absolute;inset:0 auto 0 0;width:var(--v);background:var(--fg);border-radius:2px}
 .traits i::before{content:"";position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--faint)}.traits small{color:var(--muted);font-variant-numeric:tabular-nums}
 textarea,input{font:inherit;font-size:13px;color:var(--fg);background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:6px 8px;width:100%;margin:4px 0 10px}
-textarea{min-height:9rem;resize:vertical;line-height:1.5}.short{min-height:5rem}
+textarea{min-height:9rem;resize:vertical;line-height:1.5}.short{min-height:5rem}input[type=number]{max-width:12rem;display:block}.card>.small+.small{margin-top:6px}
 label{display:block;font-size:12px;color:var(--muted)}
 .tick{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:13px;margin:0 0 8px;cursor:pointer}.tick input{width:auto;margin:0;accent-color:var(--fg)}
 .pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -78,14 +78,14 @@ label{display:block;font-size:12px;color:var(--muted)}
 .sub{border-top:1px solid var(--line);margin-top:12px;padding-top:10px}
 .vs{display:grid;grid-template-columns:1fr auto auto;gap:2px 16px;font-size:12px;margin:0 0 10px}.vs small{color:var(--muted)}.vs b{font-weight:600}
 .week{width:100%;border-collapse:collapse;font-size:11px;margin-top:8px;font-variant-numeric:tabular-nums}.week th,.week td{padding:2px 3px;text-align:right;font-weight:400;border-bottom:1px solid var(--line)}.week th:first-child{text-align:left;color:var(--muted)}.week thead th{color:var(--faint)}.week td.z{color:var(--faint)}
-dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:3px 10px;font-size:12px;margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
+dl{display:grid;grid-template-columns:140px minmax(0,1fr);gap:3px 10px;font-size:12px;margin:0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 details>summary{cursor:pointer;color:var(--muted);font-size:12px}
 .who{display:flex;align-items:center;gap:8px}.who img{width:20px;height:20px;border-radius:50%}
 .said article{font-size:12px;padding:6px 0;border-top:1px solid var(--line)}.said p{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}.said form{display:flex;justify-content:space-between;align-items:center;gap:8px;color:var(--muted);margin-top:2px}
 @media(max-width:899px){
  header{position:static}
  .strip{flex-wrap:wrap;gap:6px 14px;padding:10px 16px}.strip .nm{flex:1;margin:0}.strip form{order:1;margin:0}.switch small{display:none}.strip .id{order:2}.strip .calls{order:3}.strip .kv{order:4;flex:1 0 100%}.cells{width:80px}.strip .kv .faint{display:none}
- nav.top{padding:0 8px}nav.top a{padding:6px 8px}
+ nav.top{padding:0 8px;flex-wrap:wrap}nav.top a{padding:6px 8px}
  .flash,.foot{padding-left:16px;padding-right:16px}.page{padding:12px 16px 24px}
  .now,.roomv,.cols,.think,.pair{grid-template-columns:minmax(0,1fr)}.cards{grid-template-columns:minmax(0,1fr)}
  .rail,.toc{position:static;max-height:none}.toc{display:none}.jump{display:block;margin:0 0 8px}
@@ -137,7 +137,8 @@ ${toggle(place, m.paused)}</div>`;
 const nav = tabs => `<nav class="top" id="nav" data-live>${tabs.map(t => `<a href="${escape(t.href)}"${t.end ? ' class="end"' : ''}${t.current ? ' aria-current="page"' : ''}>${escape(t.label)}${t.badge ? ` <em>${t.badge} unanswered</em>` : ''}</a>`).join('')}</nav>`;
 const bars = p => `<div class="traits">${axes.map(a => `<span>${a}</span><i style="--v:${Math.round(p[a] * 100)}%"></i><small>${p2(p[a])}</small>`).join('')}</div>`;
 function needs(items) {
-  const list = items.map(x => `<li class="${x.tone}"><a href="${escape(x.href)}">${escape(x.text)}${x.why ? ` <small>${escape(x.why)}</small>` : ''}</a></li>`).join('');
+  const why = x => x.misses ? x.misses.map(m => `${escape(m.who)} ${time(m.at)}, ${escape(m.why)}`).join(' · ') : `${x.at ? `last at ${time(x.at)}. ` : ''}${escape(x.why)}`;
+  const list = items.map(x => [x, why(x)]).map(([x, w]) => `<li class="${x.tone}"><a href="${escape(x.href)}">${escape(x.text)}${w ? ` <small>${w}</small>` : ''}</a></li>`).join('');
   return `<section id="needs" data-live><h2>needs you <span>${items.length}</span></h2>${list ? `<ul class="needs">${list}</ul>` : '<p class="small">nothing needs you.</p>'}</section>`;
 }
 function now(m, place) {
@@ -157,7 +158,7 @@ const norms = (place, id, text) => post(place, '/norms', `<input type="hidden" n
 function room(m, place, events) {
   const said = m.posts.error ? `<p class="small">I can't read my history right now (${escape(m.posts.error)}).</p>`
     : m.posts.list.length ? `<details><summary>show all, with delete</summary>${m.posts.list.map(p => `<article><p>${escape(p.text)}</p>${post(place, '/delete', `<span>${stamp(p.at).slice(0, 16)} UTC</span><input type="hidden" name="room_id" value="${escape(m.id)}"><input type="hidden" name="message_id" value="${escape(p.message_id)}"><button class="del">delete</button>`)}</article>`).join('')}</details>` : '<p class="small">nothing yet.</p>';
-  return `<div class="roomv"><div><h2>#${escape(m.id)} through my eyes <span>times in UTC</span></h2><p class="jump small"><a href="#rail">what I believe about #${escape(m.id)}, its norms, my posts here</a></p>
+  return `<div class="roomv"><div><h2>#${escape(m.id)} through my eyes</h2><p class="jump small"><a href="#rail">what I believe about #${escape(m.id)}, its norms, my posts here</a></p>
 <div class="chat" data-room="${escape(m.id)}" data-since="${events.at(-1)?.at ?? 0}">${rows(m.rows, place) || '<p class="empty">nothing here since I started.</p>'}</div></div>
 <aside class="rail" id="rail"><section><h2>what I believe about #${escape(m.id)}</h2><div class="card"><p class="small">${m.notes ? escape(m.notes) : 'nothing to note yet.'}</p><p class="small faint">rebuilt daily from the counts below. this goes into my prompt here.</p>${week(m.week)}</div></section>
 <section><h2>norms for #${escape(m.id)}</h2><div class="card">${norms(place, m.id, m.norms)}</div></section>
@@ -217,7 +218,7 @@ function plumbing(m, place) {
 </div><div>
 <section><h2>calls today <span>${c.total} of ${c.limit}</span></h2><div class="card"><dl>${by}${c.unsorted ? `<dt>before sorting</dt><dd>${c.unsorted}</dd>` : ''}</dl>
 <p class="small" style="margin-top:8px">counted since 00:00 UTC, across restarts. ${m.speed ? `replies took a median ${secs(m.speed.median)}, p90 ${secs(m.speed.p90)}, over ${plural(m.speed.n, 'reply', 'replies')}.` : 'no replies yet today.'}</p></div></section>
-<section><h2>ignored elsewhere <span>${m.elsewhere.length}</span></h2><div class="card">${m.elsewhere.map(r => `<p class="small">${time(r.at)} ${escape(r.who)} in #${escape(r.room)}: ${escape(r.margin)}</p>`).join('') || '<p class="small">nothing.</p>'}</div></section>
+<section><h2>ignored elsewhere <span>${m.elsewhere.length}</span></h2><div class="card">${m.elsewhere.map(r => `<p class="small">${time(r.at)} ${escape(r.who)}${r.room ? ` in #${escape(r.room)}` : ''}: ${escape(r.margin)}</p>`).join('') || '<p class="small">nothing.</p>'}</div></section>
 <section><h2>change server or token</h2><div class="card">${post(place, '/apron', `<label>server<input name="url" value="${escape(l.url)}" required></label>
 <label>bot token<input name="token" type="password" autocomplete="off" placeholder="apron_bot_…" required></label>
 <div class="bar"><button class="save">save and reconnect</button><span>The token is never shown.</span></div>`)}</div></section>
@@ -284,7 +285,7 @@ async function redraw(id) {
   if (res.ok) { const row = (await parse(res)).firstElementChild; if (row) old.replaceWith(row); }
 }
 const events = new EventSource('/events');
-events.onopen = () => { status.textContent = '● live'; catchUp(); };
+events.onopen = () => { status.textContent = '● live · local times'; catchUp(); };
 events.onerror = () => { status.textContent = 'reconnecting…'; };
 events.onmessage = m => {
   const e = JSON.parse(m.data);

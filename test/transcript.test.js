@@ -85,7 +85,7 @@ test('a span offline long enough to miss messages is one break in every room, an
   const t = Date.UTC(2026, 9, 28, 11, 40);
   const churn = [{ at: t, kind: 'disconnected', reason: 'close-1006' }, { at: t + 1000, kind: 'disconnected', reason: 'error' }, { at: t + 240000, kind: 'connected', host: 'h', user_id: 'bot_me' },
     { at: t + 300000, kind: 'disconnected', reason: 'close-1006' }, { at: t + 330000, kind: 'connected', host: 'h', user_id: 'bot_me' }, { at: t + 340000, kind: 'auth-denied' }, { at: t + 350000, kind: 'error', code: 'apron-auth-denied' }];
-  const gap = { kind: 'break', at: t + 240000, tone: 'warn', text: 'offline 11:40 to 11:44. anything said then I missed.' };
+  const gap = { kind: 'break', at: t + 240000, tone: 'warn', text: 'back after 4 min offline. anything said then I missed.' };
   assert.deepEqual(transcript(churn, ['general', 'builds']).rooms, [{ id: 'general', rows: [gap] }, { id: 'builds', rows: [gap] }]);
 });
 test('runs of quiet rows fold into one, which counts what was learned; rows with text, posts and breaks stay', () => {

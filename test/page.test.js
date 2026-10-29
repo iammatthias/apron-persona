@@ -48,7 +48,7 @@ test('the nav has now, a tab per room badged with its unanswered mentions, the b
 });
 test('now lists what needs the owner, a card per room, and the bot in brief; one room drops the card', () => {
   const html = view('now');
-  assert.ok(html.includes('<section id="needs" data-live><h2>needs you <span>2</span></h2><ul class="needs"><li class="warn"><a href="/?view=room&#38;room=general">1 mention in #general got no answer <small>lin 14:25, below the bar</small></a></li><li class="warn"><a href="/?view=room&#38;room=random">1 mention in #random got no answer <small>lin 14:26, out of calls</small></a></li></ul></section>'));
+  assert.ok(html.includes('<section id="needs" data-live><h2>needs you <span>2</span></h2><ul class="needs"><li class="warn"><a href="/?view=room&#38;room=general">1 mention in #general got no answer <small>lin <time datetime="2026-10-28T14:25:00.000Z">14:25</time>, below the bar</small></a></li><li class="warn"><a href="/?view=room&#38;room=random">1 mention in #random got no answer <small>lin <time datetime="2026-10-28T14:26:00.000Z">14:26</time>, out of calls</small></a></li></ul></section>'));
   assert.ok(html.includes('<div class="cards" id="cards" data-live><section class="card room"><div class="head"><a href="/?view=room&#38;room=general">#general</a><span class="small">5 read today · last 4m ago</span></div>'));
   assert.ok(html.includes('<aside><h2>the bot <a href="/?view=bot">tune</a></h2><div class="card botcard"><p class="persona">canary-persona &#60;/textarea&#62;&#60;script&#62;x&#60;/script&#62; P&#60;i&#62;</p>'));
   assert.ok(html.includes('<p class="small">I answer mentions and replies at 0.70. I never chime in.</p>'));

@@ -67,11 +67,11 @@ test('the nav badges each room with its unanswered mentions today and marks the 
 test('needs you groups each room\'s unanswered mentions with their reasons, then the redraft, the link, refused writes and the budget', () => {
   const learning = { stage: 'ready', host: 'h', rooms: ['general'], count: 500, failed: 1, detail: 'timeout', persona: 'x', vector: [1, 0, .5, .5] };
   assert.deepEqual(needs({ ...s, learning }), [
-    { group: 'room', tone: 'bad', href: '/?view=room&room=general', text: '2 mentions in #general got no answer', why: 'theo 13:42, below the bar · kofi 14:16, model failed' },
-    { group: 'room', tone: 'warn', href: '/?view=room&room=builds', text: '1 mention in #builds got no answer', why: 'mei 13:43, out of calls' },
+    { group: 'room', tone: 'bad', href: '/?view=room&room=general', text: '2 mentions in #general got no answer', misses: [{ who: 'theo', at: at(49), why: 'below the bar' }, { who: 'kofi', at: at(15), why: 'model failed' }] },
+    { group: 'room', tone: 'warn', href: '/?view=room&room=builds', text: '1 mention in #builds got no answer', misses: [{ who: 'mei', at: at(48), why: 'out of calls' }] },
     { group: 'persona', tone: 'ok', href: '/?view=bot#persona', text: 'a redraft from 500 messages in #general on h is ready to review', why: '1 of my readings failed (timeout), so it leans on the rest.' },
     { group: 'link', tone: 'warn', href: '/?view=plumbing', text: 'the link dropped 3 times in the last hour (close-1006)', why: 'up again for 10 min.' },
-    { group: 'disk', tone: 'bad', href: '/?view=plumbing', text: "I couldn't save state.json", why: 'refused 1 time, last at 14:19 UTC. I carry on and try again.' },
+    { group: 'disk', tone: 'bad', href: '/?view=plumbing', text: "I couldn't save state.json", at: at(12), why: 'refused 1 time. I carry on and try again.' },
     { group: 'budget', tone: 'warn', href: '/?view=plumbing', text: "I've spent all 40 calls for today", why: '30 reading messages, 6 writing replies. resets at 00:00 UTC.' },
   ]);
   const down = needs({ ...s, events: [], learning: { stage: 'failed', host: 'h', rooms: ['a', 'b'], detail: 'history-closed' }, status: { ...s.status, connected: false, error: 'apron-auth-denied', budget: { day: '2026-10-28', calls: 3 } } });
@@ -96,7 +96,7 @@ test('now has a card per room with its latest decisions, and with one room only 
 });
 test('a room page folds quiet runs, holds only its own posts, and keeps churn out', () => {
   const view = room(s, 'general');
-  assert.deepEqual(view.rows.map(r => r.kind === 'fold' ? `fold of ${r.rows.length}, ${r.learned} learned` : r.message_id ?? r.text), ['m50', 'm49', 'offline 23:31 to 13:47. anything said then I missed.', 'm20', 'p1', 'm15', 'fold of 2, 0 learned']);
+  assert.deepEqual(view.rows.map(r => r.kind === 'fold' ? `fold of ${r.rows.length}, ${r.learned} learned` : r.message_id ?? r.text), ['m50', 'm49', 'back after 856 min offline. anything said then I missed.', 'm20', 'p1', 'm15', 'fold of 2, 0 learned']);
   assert.deepEqual(view.rows.filter(r => r.kind === 'message').map(r => r.who), ['ben', 'theo', 'ana', 'kofi']);
   assert.deepEqual([view.notes, view.norms, view.posts], ['In #general lately: mostly code. Norms: be kind', 'be kind', { error: null, list: [{ message_id: 'p1', at: at(19), text: 'yo' }] }]);
   assert.deepEqual(room({ ...s, posts: { error: 'not-connected' } }, 'builds').posts, { error: 'not-connected', list: [] });
