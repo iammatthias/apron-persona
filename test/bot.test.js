@@ -502,3 +502,8 @@ test('a refused state write is recorded and the bot carries on', () => {
   assert.equal(bot.status().error, 'state-refused');
   assert.equal(bot.dirty, false);
 });
+test('a message that names the bot without tagging it is answered like a mention', async () => {
+  const f = connected(model());
+  assert.deepEqual(await deliver(f, {}, 'bot, you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.equal(f.ws.sent.filter(x => x.method === 'message').length, 1);
+});

@@ -1,4 +1,4 @@
-import { classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
+import { named, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
@@ -135,7 +135,7 @@ export class Bot {
   }
   addressed(p) {
     const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
-    const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`));
+    const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`) || named(text, [this.name, this.self]));
     return addressing(this.settings, mention, this.own.has(p?.reply_to?.message_id));
   }
   connect() {

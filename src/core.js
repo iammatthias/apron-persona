@@ -85,6 +85,11 @@ export function incoming(p, self, bots, rooms) {
   return null;
 }
 // How a message reaches the bot. Clients may add a mention to a reply, so with mentions off a reply still counts as one.
+// Whether a message speaks to the bot by name rather than by tag: its display name, its user id, or just "bot".
+export function named(text, names) {
+  const words = [...names.filter(Boolean), 'bot'].map(n => n.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'));
+  return new RegExp(`(^|[^\\w@])(${words.join('|')})(?![\\w])`, 'i').test(text);
+}
 export function addressing(s, mention, reply) {
   if (mention && reply) return !s.reply_mentions && s.reply_replies ? 'reply' : 'mention';
   return mention ? 'mention' : reply ? 'reply' : undefined;

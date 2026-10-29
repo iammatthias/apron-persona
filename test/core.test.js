@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { axes, fresh, learn, decay, persona, fingerprint, incoming, decision } from '../src/core.js';
+import { named, axes, fresh, learn, decay, persona, fingerprint, incoming, decision } from '../src/core.js';
 test('4D cells decay by half-life and centroid has a neutral prior', () => {
   const s = fresh(0); learn(s, [1, 0, .5, .75], 1, 0);
   assert.deepEqual(s.cells, { '4023': 1 });
@@ -42,4 +42,9 @@ test('rejects malformed decisions and computes expected trait values', () => {
   for (const point of [undefined, -0.1, 1.5, '0.6', null]) assert.throws(() => decision(reply(JSON.stringify({ ...answers, point }))), { message: 'invalid-decision' }, String(point));
   assert.throws(() => decision(reply('not json')));
   assert.throws(() => decision({}));
+});
+test('naming the bot addresses it, but a word that merely contains it does not', () => {
+  const names = ['Bot of Matthias', 'bot_guest_1'];
+  for (const t of ['bot, you there?', 'hey Bot of Matthias', 'yo bot_guest_1', 'Bot?']) assert.equal(named(t, names), true, t);
+  for (const t of ['the robot army', 'bots are fun', 'about my chatbot', 'sabot', 'ping @someone']) assert.equal(named(t, names), false, t);
 });
