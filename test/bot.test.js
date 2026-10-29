@@ -725,3 +725,11 @@ test('only an invalid_params answer marks a room unavailable; another server err
   f.bot.refuse('general', Object.assign(Error('Unknown room "general"'), { refused: true, code: -32602 }));
   assert.deepEqual([...f.bot.unavailable], [['general', 'Unknown room "general"']]);
 });
+test('a stream of declined mentions from one person rests the room instead of spending calls without end', async () => {
+  let calls = 0;
+  const f = connected(async (url, init) => { ++calls; return model({ scores: { learn: .9, reply: .1, point: .1 } })(url, init); });
+  const outcomes = [];
+  for (let i = 0; i < 10; i++) outcomes.push((await deliver(f, { from: { user_id: 'dave' } }, `hey @bot_me ${i}`))[0].outcome);
+  assert.deepEqual(outcomes, [...Array(6).fill('declined'), ...Array(4).fill('looping')]);
+  assert.equal(calls, 12);
+});

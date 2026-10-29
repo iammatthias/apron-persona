@@ -318,10 +318,11 @@ export class Bot {
     const since = last < 0 ? Infinity : log.length - last;
     // What this message left in the room: a turn of its sender's, and one of the bot's where its post went out. A
     // message its sender talked over took no turn of theirs; the draft it ended, if one had started, took one of the
-    // bot's, so a burst that talks over every draft rests the room as surely as one that draws every reply.
+    // bot's, so a burst that talks over every draft rests the room as surely as one that draws every reply. So does an
+    // addressed message that spent calls and posted nothing (declined or failed): with no daily cap, those add up too.
     const took = (result, spent = false) => {
       if (result.outcome !== 'superseded') log.push(null);
-      if (result.posted || (result.outcome === 'superseded' && spent)) log.push(result.posted?.organic ? '' : p.from.user_id);
+      if (result.posted || (spent && (addressed || result.outcome === 'superseded'))) log.push(result.posted?.organic ? '' : p.from.user_id);
       this.turns.set(p.room_id, log.slice(-LOOP_WINDOW));
       return result;
     };
