@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
+import { margins } from '../src/events.js';
 import { settings, guardrails, cue, chime } from '../src/settings.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
@@ -233,8 +234,8 @@ test('a mention can be declined, cooled down, or out of budget', async () => {
   assert.deepEqual(await deliver(g), seen('budget'));
 });
 test('classification and reply failures carry their code', async () => {
-  assert.deepEqual(await deliver(connected(model({ classify: 'not json' }))), seen('classify-failed', { detail: 'invalid-decision' }));
-  assert.deepEqual(await deliver(connected(model({ status: 500 }))), seen('classify-failed', { detail: 'inference-500' }));
+  assert.deepEqual(await deliver(connected(model({ classify: 'not json' })), {}, 'just chatting'), seen('classify-failed', { addressed: undefined, detail: 'invalid-decision' }));
+  assert.deepEqual(await deliver(connected(model({ status: 500 })), {}, 'just chatting'), seen('classify-failed', { addressed: undefined, detail: 'inference-500' }));
   const empty = connected(model({ text: '  ' }));
   assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, style: flat }));
   assert.equal(empty.ws.sent.filter(f => f.method === 'message').length, 0);
@@ -359,4 +360,25 @@ test('saving settings records only the values that changed', () => {
   bot.configure({ reply_mentions: 'on', reply_replies: 'on', reply_threshold: '0.7', cooldown: '15', organic: 'on', organic_threshold: '0.95', organic_gap: '30' });
   bot.configure({ organic: 'on' });
   assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['organic', 'organic_threshold'], organic: true, organic_threshold: .95 }]);
+});
+test('a mention is answered even when sizing it up fails, and learns nothing', async () => {
+  const f = connected(model({ status: 500 }));
+  assert.deepEqual(await deliver(f), seen('replied', { detail: 'inference-500' }));
+  assert.equal(f.ws.sent.filter(x => x.method === 'message').length, 1);
+  assert.deepEqual(f.bot.state.cells, {});
+  assert.equal(margins.replied.say({ detail: 'timeout' }), "answered, though I couldn't size it up first (timeout).");
+});
+test('a failed or empty reply is tried once more', async () => {
+  let replies = 0;
+  const flaky = async (url, init) => JSON.parse(init.body).temperature === 0
+    ? model()(url, init)
+    : ++replies === 1 ? new Response('', { status: 503 }) : Response.json({ choices: [{ message: { content: 'second try' } }] });
+  const f = connected(flaky);
+  assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, style: flat }));
+  assert.equal(replies, 2);
+  assert.equal(f.ws.sent.filter(x => x.method === 'message').at(-1).params.body.text, 'second try');
+  let calls = 0;
+  const empty = connected(async (url, init) => { if (JSON.parse(init.body).temperature !== 0) ++calls; return model({ text: '' })(url, init); });
+  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, style: flat }));
+  assert.equal(calls, 2);
 });

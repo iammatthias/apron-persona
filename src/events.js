@@ -72,7 +72,7 @@ export const margins = {
   'classify-failed': { place: 'room', tone: 'bad', say: e => `I couldn't size it up. the model call failed (${e.detail}).` },
   'reply-empty': { place: 'room', tone: 'bad', say: () => 'the model returned nothing, so I stayed quiet.' },
   'reply-failed': { place: 'room', tone: 'bad', say: e => `I tried, but the model call failed (${e.detail}).` },
-  replied: { place: 'room', tone: 'ok', answered: true, say: e => `answered. I was ${p2(e.reply_p)} sure a reply fit.` },
+  replied: { place: 'room', tone: 'ok', answered: true, say: e => e.reply_p === undefined ? `answered, though I couldn't size it up first (${e.detail}).` : `answered. I was ${p2(e.reply_p)} sure a reply fit.` },
   'chimed-in': { place: 'room', tone: 'ok', answered: true, say: e => `chimed in unprompted. I was ${p2(e.reply_p)} sure it'd be welcome.` },
 };
 const toggled = (on, off) => v => v ? on : off;

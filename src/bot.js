@@ -196,7 +196,7 @@ export class Bot {
     if (this.budget.day !== day) this.budget = { day, calls: 0 };
     return +this.env.DAILY_CALLS - this.budget.calls;
   }
-  async api(body, wait = 20000) {
+  async api(body, wait = 45000) {
     if (this.left() <= 0) throw Error('budget');
     ++this.budget.calls; this.save();
     const res = await this.request('https://openrouter.ai/api/v1/chat/completions', {
@@ -224,32 +224,43 @@ export class Bot {
     const clocks = { now, lastReply: this.lastReply, lastOrganic: this.organic.get(p.room_id) ?? 0 };
     const early = trigger(this.settings, { addressed, eligible }, clocks);
     if (early) return { outcome: early.outcome };
-    const failed = (outcome, e, scores) => e.message === 'budget' ? { outcome: 'budget', ...scores } : { outcome, detail: e.name === 'TimeoutError' ? 'timeout' : e.message, ...scores };
-    let result;
+    const failed = (outcome, e, scores) => e.message === 'budget' ? { outcome: 'budget', ...scores } : { outcome, ...scores, detail: e.name === 'TimeoutError' ? 'timeout' : e.message };
+    let result, unsized;
     try { result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) })); }
-    catch (e) { return failed('classify-failed', e); }
+    catch (e) {
+      // Someone talking to the bot gets an answer even when sizing the message up failed; it just learns nothing.
+      if (!addressed || e.message === 'budget') return failed('classify-failed', e);
+      unsized = failed('classify-failed', e).detail;
+      result = { learn: 0, reply: 1, vector: null };
+    }
     if (connection !== this.ws) return { outcome: 'stale' };
-    const learned = eligible && result.learn >= .8;
+    const learned = eligible && !unsized && result.learn >= .8;
     if (learned) {
       this.people.set(participant, now);
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
-    const scores = { learn_p: result.learn, reply_p: result.reply, style: learned ? result.vector : undefined };
+    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, style: learned ? result.vector : undefined };
     const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply }, { ...clocks, lastReply: this.lastReply });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     this.prune();
-    let output;
-    try {
-      output = await this.api({
-        model: this.env.CHAT_MODEL, max_tokens: 1500,
-        messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
-          { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8), organic) }],
-      });
-    } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
-    const raw = output?.choices?.[0]?.message?.content;
-    const reply = typeof raw === 'string' ? line(raw, ['you', this.name, this.self]) : '';
+    const body = {
+      model: this.env.CHAT_MODEL, max_tokens: 1500,
+      messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
+        { role: 'user', content: roomPrompt(this.context.filter(x => x.room === p.room_id).slice(-8), organic) }],
+    };
+    // The free router picks a model per call, so one retry usually lands on a different one.
+    let reply = '', error;
+    for (let attempt = 0; attempt < 2 && !reply; ++attempt) {
+      try {
+        const raw = (await this.api(body))?.choices?.[0]?.message?.content;
+        reply = typeof raw === 'string' ? line(raw, ['you', this.name, this.self]) : '';
+        error = undefined;
+      } catch (e) { error = e; if (e.message === 'budget') break; }
+      if (connection !== this.ws) return { outcome: 'stale', respond, ...scores };
+    }
+    if (error) return failed('reply-failed', error, { respond, ...scores });
     if (!reply) return { outcome: 'reply-empty', respond, ...scores };
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const content = reply.slice(0, 1800);
