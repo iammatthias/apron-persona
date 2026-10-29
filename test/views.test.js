@@ -52,6 +52,8 @@ test('the strip says how the link is, what the day cost and what the bot did', (
   });
   assert.equal(strip({ ...s, status: { ...s.status, paused: true } }).link.state, 'paused');
   assert.equal(strip({ ...s, status: { ...s.status, connected: false, error: 'apron-auth-denied' } }).link.state, 'down');
+  assert.equal(strip({ ...s, status: { ...s.status, paused: true, connected: false, error: 'apron-auth-denied' } }).link.state, 'down');
+  assert.equal(strip({ ...s, status: { ...s.status, paused: true, connected: false } }).link.state, 'connecting');
 });
 test('the nav badges each room with its unanswered mentions today and marks the current tab', () => {
   assert.deepEqual(tabs(s, { view: 'room', room: 'builds' }), [
@@ -79,6 +81,7 @@ test('needs you groups each room\'s unanswered mentions with their reasons, then
     { group: 'persona', tone: 'bad', href: '/?view=bot#persona', text: "I couldn't redraft from history in #a and #b on h", why: 'history-closed' },
     { group: 'link', tone: 'bad', href: '/?view=plumbing', text: "I'm not connected (apron-auth-denied)", why: '' },
   ]);
+  assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, paused: true, connected: false, error: 'apron-auth-denied', budget: { day: '', calls: 0 } } }).map(n => n.text), ["I'm not connected (apron-auth-denied)"]);
   assert.deepEqual(needs({ ...s, events: [], limit: '0', status: { ...s.status, budget: { day: '', calls: 0 } } }), [{ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: 'DAILY_CALLS is 0, so I make no calls today', why: '' }]);
   assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, budget: { day: '', calls: 0 } } }), []);
 });

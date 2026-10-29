@@ -20,10 +20,10 @@ export function calls({ status, spent, limit, now }) {
   const by = Object.keys(roles).map(role => ({ role, label: purposes[role], calls: 0, hedges: 0, retries: 0, ...fresh ? spent[role] : {} }));
   return { total, limit: Number(limit) || 0, by, unsorted: total - by.reduce((n, r) => n + r.calls, 0) };
 }
-// The link at a glance. state is paused, up, down (with an error) or connecting; up is how long it has been signed in.
+// The link at a glance. state is down (with an error) or connecting while not signed in, else paused or up; up is how long it has been signed in.
 export function link({ events, status, details, now }) {
   const hour = events.filter(e => e.kind === 'disconnected' && e.at > now - HOUR);
-  const state = status.paused ? 'paused' : status.connected ? 'up' : status.error ? 'down' : 'connecting';
+  const state = !status.connected ? status.error ? 'down' : 'connecting' : status.paused ? 'paused' : 'up';
   return { state, error: status.error, up: details?.since ? now - details.since : null, drops: hour.length, reason: hour.at(-1)?.reason ?? null };
 }
 // Each watched room's mentions today that got no answer.
