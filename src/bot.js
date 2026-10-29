@@ -8,6 +8,8 @@ import * as models from './models.js';
 const TTL = 300000;
 // A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
 const DEADLINE = 25000, TYPING = 6000;
+// Calls a day when DAILY_CALLS is missing or not a number; index.js sets the same default.
+const DAILY_CALLS = 40;
 // Failures that are outcomes in their own right, with no detail to add.
 const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
@@ -244,7 +246,8 @@ export class Bot {
   left() {
     const day = new Date().toISOString().slice(0, 10);
     if (this.budget.day !== day) { this.budget = { day, calls: 0 }; this.spent = {}; }
-    return +this.env.DAILY_CALLS - this.budget.calls;
+    const set = String(this.env.DAILY_CALLS ?? '').trim(), cap = set ? Number(set) : NaN;
+    return (Number.isFinite(cap) ? cap : DAILY_CALLS) - this.budget.calls;
   }
   // One request to OpenRouter, counted against the day's calls before it is sent. An endpoint that refuses to have
   // its thinking turned off ("Reasoning is mandatory") is asked again at once with the thinking merely hidden.
