@@ -75,6 +75,9 @@ label{display:block;font-size:12px;color:var(--muted)}
 .sub:has([type=checkbox][name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
 .lesson{margin-top:12px}.lesson.bad{color:var(--bad)}
 .proposal{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.proposal>.small{margin-bottom:10px}.proposal textarea{min-height:10rem}
+.mem{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.mem h3{font-size:12px;font-weight:600;margin:0 0 4px}.mem textarea{min-height:5rem}
+.week{width:100%;border-collapse:collapse;font-size:11px;margin:8px 0 10px;font-variant-numeric:tabular-nums}
+.week th,.week td{padding:2px 3px;text-align:right;font-weight:400;border-bottom:1px solid var(--line)}.week th:first-child{text-align:left;color:var(--muted)}.week thead th{color:var(--faint)}.week td.z{color:var(--faint)}
 .vs{display:grid;grid-template-columns:1fr auto auto;gap:2px 16px;font-size:12px;margin:0 0 10px}.vs small{color:var(--muted)}.vs b{font-weight:600}
 dl{display:grid;grid-template-columns:90px minmax(0,1fr);gap:3px 10px;font-size:11px;margin:8px 0 0}dt{color:var(--muted)}dd{margin:0;overflow-wrap:anywhere;white-space:pre-wrap}
 @media(max-width:899px){
@@ -127,7 +130,8 @@ function sentence({ status, settings, rooms, details, limit, calls }) {
   if (!status.connected) return (status.error ? `I can't reach ${host} (${status.error}).` : `I'm connecting to ${host}.`) + spent;
   return (status.paused ? `I'm paused, so I'm not reading ${where} on ${host}.` : `I'm listening in ${where} on ${host}${settings.organic ? ', and I chime in unprompted now and then' : ''}.`) + spent;
 }
-// The private dashboard. ctx is { name, status, settings, limit, details, lastError, events, posts, rooms, room, view, edit, flash, learning, preview, now }.
+// The private dashboard. ctx is { name, status, settings, limit, details, lastError, events, posts, rooms, room, view, edit, flash, learning, preview, memory, now },
+// where memory is each watched room's { id, notes, week }.
 export function dashboard(ctx) {
   const t = transcript(ctx.events, ctx.rooms), now = ctx.now ?? Date.now();
   const calls = ctx.status.budget.day === new Date(now).toISOString().slice(0, 10) ? ctx.status.budget.calls : 0;
@@ -155,7 +159,8 @@ function drift(personality) {
   return `This room has made me ${list(moved.map(a => leanings[a][personality[a] > .5 ? 0 : 1]))} than where I started (the tick at 0.5).`;
 }
 function me(ctx) {
-  const { settings, status, name } = ctx, [identity, style, , rules] = promptParts(settings, status.personality, name).map(escape);
+  const { settings, status, name } = ctx, here = ctx.memory.find(m => m.id === ctx.room) ?? ctx.memory[0];
+  const [identity, style, notes, rules] = promptParts(settings, status.personality, name, here?.notes).map(escape);
   const persona = ctx.edit
     ? `${post(ctx, '/settings', `<label>who I am, in my own words. {name} becomes ${escape(name)}.<textarea name="persona" maxlength="4000" required>${escape(settings.persona)}</textarea></label>
 <div class="bar"><button class="save">save</button><a href="/?view=who&amp;room=${encodeURIComponent(ctx.room)}">cancel</a><span>${settings.persona.length} of 4000</span></div>`)}
@@ -167,8 +172,19 @@ ${persona}
 <div class="traits">${traits}</div>
 <p class="lean">${drift(status.personality)}</p>
 ${lesson(ctx)}
-<details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div><div class="fixed"><small>then the room · fixed</small>the last 8 lines here, one "name: text" each, with mine as "you", then: ${escape(cue)} When I chime in unprompted, instead: ${escape(chime)}</div></details>
+${ctx.memory.map(m => remembered(ctx, m)).join('')}
+<details class="pp"><summary>the exact prompt I'm given</summary><div><small>persona</small>${identity}</div><div><small>learned style</small>${style}</div><div><small>room notes${here ? ` · #${escape(here.id)}, rebuilt daily` : ''}</small>${notes || 'nothing yet.'}</div><div class="fixed"><small>guardrails · fixed</small>${rules}</div><div class="fixed"><small>then the room · fixed</small>the last 8 lines here, one "name: text" each, with mine as "you", then: ${escape(cue)} When I chime in unprompted, instead: ${escape(chime)}</div></details>
 </div></section>`;
+}
+// One room's notes as the prompt gets them, its last 7 days by topic, and the owner's norms for it.
+function remembered(ctx, { id, notes, week }) {
+  const norms = ctx.settings.norms[id] ?? '';
+  const head = week.days.map(d => `<th title="${d}">${+d.slice(8)}</th>`).join('');
+  const body = week.rows.map(([t, n]) => `<tr><th>${escape(t)}</th>${n.map(x => x ? `<td>${x}</td>` : '<td class="z">·</td>').join('')}</tr>`).join('');
+  return `<div class="mem"><h3>#${escape(id)}</h3><p class="small">${notes ? escape(notes) : 'nothing to note yet.'}</p>
+${body ? `<table class="week"><thead><tr><th>last 7 days</th>${head}</tr></thead><tbody>${body}</tbody></table>` : '<p class="small">no messages counted in the last 7 days.</p>'}
+${post(ctx, '/norms', `<input type="hidden" name="room_id" value="${escape(id)}"><label>norms for #${escape(id)}, which I'll honour<textarea name="norms" maxlength="1000">${escape(norms)}</textarea></label>
+<div class="bar"><button class="save">save</button><span>${norms.length} of 1000</span></div>`)}</div>`;
 }
 const p2 = x => Number(x).toFixed(2);
 // The history job's stage, its proposal, or the folded form that starts one. The live script swaps #lesson on each stage.

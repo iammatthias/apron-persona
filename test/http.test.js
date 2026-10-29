@@ -2,6 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { site, admin } from '../src/http.js';
+import { tally } from '../src/memory.js';
 const portal = bot => admin(bot, () => {});
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: '', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const listeners = options => {
@@ -142,4 +143,20 @@ test('a proposal renders escaped beside the traits it would leave, and applies t
   assert.equal(bot.settings.persona, 'You are {name}, trimmed.');
   assert.ok((await (await get(admin, '/?view=who')).text()).includes("you taught me the room's voice (300 messages)"));
   assert.equal((await post(admin, '/learn/apply', { persona: 'again' })).headers.get('Location'), '/?view=who&room=general&error=there%20is%20no%20proposal%20to%20apply');
+});
+test('norms save per watched room, show in the room notes, and stay out of the log', async () => {
+  const { bot, admin } = listeners();
+  const today = new Date().toISOString().slice(0, 10);
+  tally(bot.memory, 'general', today, { topic: 'food', engaged: true, outcome: 'replied' });
+  assert.equal((await post(admin, '/norms', { room_id: 'general', norms: ' no <b>spoilers</b> ' })).headers.get('Location'), '/?view=who&room=general&ok=Saved%20the%20norms%20for%20%23general');
+  assert.deepEqual(bot.settings.norms, { general: 'no <b>spoilers</b>' });
+  const html = await (await get(admin, '/?view=who')).text();
+  assert.ok(html.includes('<p class="small">Norms: no &#60;b&#62;spoilers&#60;/b&#62;</p>'));
+  assert.ok(html.includes(`<th title="${today}">${+today.slice(8)}</th></tr></thead><tbody><tr><th>food</th>${'<td class="z">·</td>'.repeat(6)}<td>1</td></tr></tbody></table>`));
+  assert.ok(html.includes("you rewrote a room's norms"));
+  assert.ok(!JSON.stringify(bot.log.list()).includes('spoilers'));
+  assert.equal((await post(admin, '/norms', { room_id: 'random', norms: 'x' })).headers.get('Location'), '/?view=who&room=general&error=unknown%20room');
+  assert.equal((await post(admin, '/norms', { room_id: 'general', norms: 'x'.repeat(1001) })).headers.get('Location'), '/?view=who&room=general&error=norms%20are%20at%20most%201000%20characters');
+  await post(admin, '/norms', { room_id: 'general', norms: '' });
+  assert.deepEqual(bot.settings.norms, {});
 });

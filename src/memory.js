@@ -87,3 +87,10 @@ export function onepager(room, page, norms = '') {
   const since = [...new Set(page.shifts.map(s => s.since))].map(d => `As of ${dated(d)} the room runs ${list(page.shifts.filter(s => s.since === d).map(s => leanings[s.axis][s.up ? 0 : 1]))}.`);
   return [lately && `In #${room} lately: ${lately}.`, ...since, norms && `Norms: ${norms}`].filter(Boolean).join(' ');
 }
+// A room's last 7 days to today, oldest first, with each topic's message count per day, busiest topic first.
+export function week(memory, room, today) {
+  const days = Array.from({ length: 7 }, (_, i) => shift(today, i - 6)), r = memory.rooms[room]?.days ?? {};
+  const all = n => n.reduce((a, b) => a + b, 0);
+  const rows = topics.map(t => [t, days.map(d => r[d]?.topics[t]?.messages ?? 0)]).filter(([, n]) => all(n));
+  return { days, rows: rows.sort((a, b) => all(b[1]) - all(a[1])) };
+}

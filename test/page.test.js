@@ -17,7 +17,11 @@ const events = [
 ];
 const ctx = {
   name: 'P<i>', status, now, events, rooms: ['general', 'random'], room: 'general', view: 'transcript', edit: false, flash: null, lastError: null, limit: '40',
-  settings: restore({ settings: { persona: 'canary-persona </textarea><script>x</script> {name}' } }),
+  settings: restore({ settings: { persona: 'canary-persona </textarea><script>x</script> {name}', norms: { general: '</textarea><script>n</script> be kind' } } }),
+  memory: [
+    { id: 'general', notes: 'In #general lately: mostly code. Norms: </textarea><script>n</script> be kind', week: { days: ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]], ['banter', [1, 0, 0, 0, 0, 0, 0]]] } },
+    { id: 'random', notes: '', week: { days: ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28'], rows: [] } },
+  ],
   details: { url: 'wss://h/', since: at(14), latency: 45, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', name: 'P', roles: ['bot'], avatar: 'https://h/a.png' } },
   posts: [{ room_id: 'general', message_id: '9', log_id: String(at(7)), body: { text: '<script>said</script>' } }],
 };
@@ -101,4 +105,16 @@ test('how I respond shows each trigger as saved, and the header names chiming in
   assert.ok(loose.includes('<input type="checkbox" name="organic" value="on" checked>') && loose.includes('name="organic_threshold" min="0.5" max="0.99" step="0.05" value="0.95"'));
   assert.ok(loose.includes("<p>I'm listening in #general and #random on h, and I chime in unprompted now and then. 3 of my 40 calls are spent today.</p>"));
   assert.ok(dashboard({ ...ctx, status: { ...status, paused: true }, settings: { ...ctx.settings, organic: true } }).includes("<p>I'm paused, so I'm not reading #general and #random on h. 3"));
+});
+test('who I am shows each room\'s notes, its last 7 days by topic and a norms editor, all escaped, and the prompt shows the notes', () => {
+  const html = dashboard({ ...ctx, view: 'who' });
+  assert.ok(html.includes('<div class="mem"><h3>#general</h3><p class="small">In #general lately: mostly code. Norms: &#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</p>'));
+  assert.ok(html.includes('<table class="week"><thead><tr><th>last 7 days</th><th title="2026-10-22">22</th><th title="2026-10-23">23</th><th title="2026-10-24">24</th><th title="2026-10-25">25</th><th title="2026-10-26">26</th><th title="2026-10-27">27</th><th title="2026-10-28">28</th></tr></thead><tbody><tr><th>code</th><td class="z">·</td><td>1</td><td class="z">·</td><td>2</td><td class="z">·</td><td class="z">·</td><td>3</td></tr><tr><th>banter</th><td>1</td>'));
+  assert.ok(html.includes('<form method="post" action="/norms"><input type="hidden" name="view" value="who"><input type="hidden" name="room" value="general"><input type="hidden" name="room_id" value="general"><label>norms for #general, which I\'ll honour<textarea name="norms" maxlength="1000">&#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</textarea></label>\n<div class="bar"><button class="save">save</button><span>37 of 1000</span></div></form></div>'));
+  assert.ok(html.includes('<div class="mem"><h3>#random</h3><p class="small">nothing to note yet.</p>\n<p class="small">no messages counted in the last 7 days.</p>'));
+  assert.ok(html.includes('<textarea name="norms" maxlength="1000"></textarea></label>\n<div class="bar"><button class="save">save</button><span>0 of 1000</span></div>'));
+  assert.ok(html.includes("<div><small>learned style</small>Match the room's temperament: it runs a little warmer than a typical chat.</div><div><small>room notes · #general, rebuilt daily</small>In #general lately: mostly code. Norms: &#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</div><div class=\"fixed\"><small>guardrails · fixed</small>"));
+  assert.ok(dashboard({ ...ctx, view: 'who', room: 'random' }).includes('<div><small>room notes · #random, rebuilt daily</small>nothing yet.</div>'));
+  assert.ok(dashboard({ ...ctx, view: 'who', room: 'elsewhere' }).includes('<small>room notes · #general, rebuilt daily</small>In #general'));
+  assert.equal(html.match(/<script>/g).length, 1);
 });

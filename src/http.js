@@ -1,6 +1,7 @@
 import { page } from './page.js';
 import { dashboard, row, rows, roomOf, viewOf } from './dashboard.js';
 import { settings } from './settings.js';
+import { week, dayOf } from './memory.js';
 // Never framed, so a hostile page can't overlay the admin forms and trick a click.
 const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' } });
 const missing = () => new Response('Not found', { status: 404 });
@@ -78,6 +79,12 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
     },
     async '/learn/apply'(form) { bot.adopt(form.get('persona')); return "Applied: I've taken on the room's voice"; },
     async '/learn/discard'() { bot.discard(); return 'Discarded'; },
+    async '/norms'(form) {
+      const room = form.get('room_id');
+      if (!bot.rooms.includes(room)) throw Error('unknown room');
+      bot.configure({ norms: { ...bot.settings.norms, [room]: form.get('norms') ?? '' } });
+      return `Saved the norms for #${room}`;
+    },
     async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
   };
   return async (req, server) => {
@@ -96,8 +103,9 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
     }
     if (req.method === 'GET' && url.pathname === '/') {
       const posts = await bot.posts().catch(e => ({ error: e.message }));
+      const memory = bot.rooms.map(id => ({ id, notes: bot.notes(id), week: week(bot.memory, id, dayOf(Date.now())) }));
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
-      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash }));
+      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash, memory }));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
