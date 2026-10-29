@@ -43,7 +43,7 @@ export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () 
       const rest = chain.slice(next - 1);
       send({ ...body, model, ...rest.length > 1 ? { models: rest } : {} }, control.signal)
         .then(data => ({ value: parse(data), model: typeof data?.model === 'string' ? data.model.slice(0, 100) : model }))
-        .then(answer => finish(null, answer), e => {
+        .then(answer => { live.delete(stop); timers.clearTimeout(timer); finish(null, answer); }, e => {
           live.delete(stop); timers.clearTimeout(timer);
           if (settled) return;
           failure = control.signal.aborted ? control.signal.reason : e;

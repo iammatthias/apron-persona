@@ -230,14 +230,15 @@ export class Bot {
     if (this.budget.day !== day) this.budget = { day, calls: 0 };
     return +this.env.DAILY_CALLS - this.budget.calls;
   }
-  // One request to OpenRouter, counted against the day's calls before it is sent.
+  // One request to OpenRouter, counted against the day's calls before it is sent. Thinking is off, not just hidden:
+  // hidden thinking was most of a free model's answer time (a 60-token classification billed as 460).
   async api(body, signal) {
     if (this.left() <= 0) throw Error('budget');
     ++this.budget.calls; this.save();
     const res = await this.request('https://openrouter.ai/api/v1/chat/completions', {
       method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...body, reasoning: { exclude: true }, provider: { data_collection: 'deny' } }),
+      body: JSON.stringify({ ...body, reasoning: { enabled: false, exclude: true }, provider: { data_collection: 'deny' } }),
     });
     if (!res.ok) throw Error(`inference-${res.status}`);
     return res.json();
