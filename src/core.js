@@ -107,13 +107,17 @@ const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
 // else joins in, and it caps what a peer bot nobody flagged can draw: six answers, about twelve of forty daily
 // calls. The bot's owner is never counted (bot.js passes turns 0 for them).
 export const LOOP_TURNS = 6;
+// How many messages from others follow one of the bot's posts before it may chime in again. One unprompted post in
+// four messages is a regular who pipes up now and then; one in two (the old rule, a wait for the bot's post to stop
+// being the latest) was a second voice in every exchange when one person was doing the talking.
+export const CHIME_EVERY = 4;
 // Whether the bot responds to one message, and the outcome with the bar that decided it. Before classification (no
 // reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
-// eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and waits for
-// someone else to speak when the bot's own message is the latest in the room (spokeLast). turns is how many posts the
-// bot has made to this sender since anyone else spoke here. Nothing here is a matter of time: someone talking to the
-// bot is answered however recently it posted.
-export function trigger(s, { addressed, eligible, reply_p, point_p, spokeLast, turns = 0 }) {
+// eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and comes at most
+// once per CHIME_EVERY messages from others (since: how many have followed the bot's last post here, this one
+// included; none yet posted counts as plenty). turns is how many posts the bot has made to this sender since anyone
+// else spoke here. Nothing here is a matter of time: someone talking to the bot is answered however recently it posted.
+export function trigger(s, { addressed, eligible, reply_p, point_p, since = Infinity, turns = 0 }) {
   const open = !!addressed && s[gates[addressed]], looping = turns >= LOOP_TURNS;
   if (reply_p === undefined) {
     if (eligible || (open && !looping)) return null;
@@ -125,6 +129,6 @@ export function trigger(s, { addressed, eligible, reply_p, point_p, spokeLast, t
   const need = addressed ? s.reply_threshold : s.organic_threshold;
   if (reply_p < need) return { respond: null, outcome: addressed ? 'declined' : 'held-back', need };
   if (!addressed && !(point_p >= need)) return { respond: null, outcome: 'nothing-to-add', need };
-  if (!addressed && spokeLast) return { respond: null, outcome: 'spoke-last' };
+  if (!addressed && since < CHIME_EVERY) return { respond: null, outcome: 'spoke-last' };
   return { respond: addressed ?? 'organic', outcome: addressed ? 'replied' : 'chimed-in' };
 }

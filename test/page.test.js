@@ -62,7 +62,7 @@ test('a room is its transcript with reasons in the margin, quiet runs folded, an
   assert.ok(html.includes(`<details class="fold" data-at="${at(10)}" data-from="${at(12)}"><summary><time datetime="2026-10-28T14:19:00.000Z">14:19</time><span>2 messages read, 1 learned from</span></summary><div class="m q" data-at="${at(12)}" data-from="${at(12)}">`));
   assert.ok(html.includes('<div class="note ok" title="context 0.3s · judge 0.6s · compose 0.9s · post 0.1s · judge by cohere/north-mini-code · compose by a&#34;b">answered in 1.4s. I was 0.97 sure a reply fit.</div>'));
   assert.ok(html.includes(`<div class="m ua" data-at="${at(6)}"><div class="msg"><time datetime="2026-10-28T14:25:00.000Z">14:25</time><div><div class="n">lin</div><p>@bot one</p></div></div><div class="note warn">didn't answer. reply chance 0.42, I need 0.70.</div></div>`));
-  assert.ok(html.includes(`<div class="m q" data-at="${at(4)}"><div class="msg"><time datetime="2026-10-28T14:27:00.000Z">14:27</time><p><span class="n">lin</span> · I'd just said something here, so I let others talk.</p></div></div>`));
+  assert.ok(html.includes(`<div class="m q" data-at="${at(4)}"><div class="msg"><time datetime="2026-10-28T14:27:00.000Z">14:27</time><p><span class="n">lin</span> · I'd said something here only a few messages ago, so I let others talk.</p></div></div>`));
   assert.ok(html.includes(`<div class="gap" data-at="${at(2)}"><span><time datetime="2026-10-28T14:29:00.000Z">14:29</time> you set my reply bar to 0.75</span></div>`));
   assert.ok(html.includes(`<div class="chat" data-room="general" data-since="${at(2)}">`));
 });

@@ -1,6 +1,6 @@
 # Apron Persona
 
-A Bun bot for Apron that learns a room's conversational style and replies when mentioned or replied to. The owner sets these triggers on the admin portal and can let it chime in unprompted, which is off by default and waits for someone else to speak after it has. Inference runs on OpenRouter's free models. It runs on the homelab; `server.apron.chat` blocks Cloudflare Workers.
+A Bun bot for Apron that learns a room's conversational style and replies when mentioned or replied to. The owner sets these triggers on the admin portal and can let it chime in unprompted, which is off by default and comes at most once per four messages from others. A long back-and-forth with one person and nobody else speaking is rested until someone else does; the owner is never rested. Inference runs on OpenRouter's free models. It runs on the homelab; `server.apron.chat` blocks Cloudflare Workers.
 
 ## Run
 

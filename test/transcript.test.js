@@ -68,7 +68,7 @@ test('the view model turns events into each room\'s rows with a margin per outco
     quiet(30, 'held-back', 'ben', 'could have chimed in (0.71), but I hold out for 0.90.', { learned: true }),
     said(31, 'chimed-in', 'ben', 'anyone tried the new ramen place', "chimed in unprompted. I was 0.93 sure it'd be welcome.", 'ok'),
     { kind: 'post', at: 32, room: 'general', message_id: 'p32', text: 'the broth is the whole point', deleted: false, margin: 'something I chimed in with.' },
-    row(33, 'spoke-last', 'ben', "I'd just said something here, so I let others talk."),
+    row(33, 'spoke-last', 'ben', "I'd said something here only a few messages ago, so I let others talk."),
     { ...said(34, 'superseded', 'ana', '@bot wait', 'you kept going, so I answered your latest.'), unanswered: false },
     { kind: 'break', at: 36, text: 'you let me chime in on my own, you set my reply bar to 0.75, you stopped me answering mentions, you let me answer replies to me, you set my chime-in bar to 0.95' },
     { kind: 'break', at: 37, text: 'you stopped me chiming in, you let me answer mentions, you stopped me answering replies to me' },
