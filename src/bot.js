@@ -35,10 +35,11 @@ export class Bot {
     this.error = code; this.lastError = { code, at: Date.now() };
     this.record('error', { code });
   }
+  // Only a connection that was signed in is lost; an attempt that ends sooner is tried again next tick.
   drop(reason) {
-    const ws = this.ws;
+    const ws = this.ws, up = this.ready;
     this.ws = null; this.ready = false; this.context = [];
-    this.record('disconnected', { reason });
+    if (up) this.record('disconnected', { reason });
     ws.close();
   }
   // Runs every minute: reconnects, pings, expires context, and checkpoints.

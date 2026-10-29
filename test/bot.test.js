@@ -320,7 +320,6 @@ test('connection, auth, settings, deletes and errors are recorded', async () => 
     { kind: 'disconnected', reason: 'close-1006' },
     { kind: 'auth-denied' },
     { kind: 'error', code: 'apron-auth-denied' },
-    { kind: 'disconnected', reason: 'auth-denied' },
     { kind: 'error', code: 'no-apron-token' },
   ]);
   assert.equal(f.bot.lastError.code, 'apron-auth-denied');
