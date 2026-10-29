@@ -41,7 +41,9 @@ export class Bot {
     // Watched rooms the server refused this sign-in, with what it said. Asking again for a room it refused drew
     // "Repeated policy violations" and a dropped connection, so one is left alone until the next sign-in tries it again.
     this.unavailable = new Map();
-    this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
+    // Servers deduplicate requests by (user_id, id) across reconnects and restarts (§1.2), so ids carry a prefix
+    // fresh to this process: a restarted bot must never reuse an id the server still remembers.
+    this.seq = 0; this.boot = crypto.randomUUID().slice(0, 8); this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
   save() {
@@ -78,14 +80,14 @@ export class Bot {
   }
   // The server answers a ping with a pong frame, never a response, so the round trip is timed by hand.
   ping() { this.pingedAt = Date.now(); this.send('ping', {}); }
-  send(method, params, id = String(++this.seq)) {
+  send(method, params, id = `${this.boot}.${++this.seq}`) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ method, id, params }));
   }
   // A request whose response resolves the returned promise, within 10 s or the signal.
   call(method, params, signal) {
     if (!this.ready || this.ws?.readyState !== 1) return Promise.reject(Error('not-connected'));
     if (signal?.aborted) return Promise.reject(signal.reason);
-    const id = String(++this.seq);
+    const id = `${this.boot}.${++this.seq}`;
     return new Promise((resolve, reject) => {
       const end = (error, value) => { this.timers.clearTimeout(timer); signal?.removeEventListener('abort', abort); this.waiting.delete(id); error ? reject(error) : resolve(value); };
       const abort = () => end(signal.reason);

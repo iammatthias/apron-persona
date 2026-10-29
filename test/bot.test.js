@@ -744,3 +744,9 @@ test('an empty owner from the server counts as no owner', () => {
   bot.self = 'bot_ana'; bot.you = { owner: '' };
   assert.equal(bot.owner, 'ana');
 });
+test('request ids never repeat across a restart, since the server remembers them per user', () => {
+  const ids = () => { const { bot, ws } = connected(model()); bot.send('ping', {}); bot.send('ping', {}); return ws.sent.filter(f => f.method === 'ping').map(f => f.id); };
+  const [a, b] = [ids(), ids()];
+  assert.equal(new Set([...a, ...b]).size, 4);
+  assert.match(a[0], /^[0-9a-f]{8}\.\d+$/);
+});
