@@ -143,6 +143,7 @@ export class Bot {
       const heard = this.heard.get(room) ?? new Map();
       talking = conversing(heard, this.answered.get(room) ?? new Map(), user, now);
       heard.set(user, now); this.heard.set(room, heard);
+      for (const [id, at] of heard) if (now - at > 30 * 60000) heard.delete(id);
     }
     return addressing(this.settings, mention || talking, this.own.has(p?.reply_to?.message_id));
   }
@@ -290,6 +291,7 @@ export class Bot {
     if (!organic) {
       const answered = this.answered.get(p.room_id) ?? new Map();
       answered.set(p.from.user_id, this.lastReply); this.answered.set(p.room_id, answered);
+      for (const [id, at] of answered) if (this.lastReply - at > 10 * 60000) answered.delete(id);
     }
     this.context.push({ room: p.room_id, at: this.lastReply, name: 'you', content });
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }

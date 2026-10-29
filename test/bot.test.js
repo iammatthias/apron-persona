@@ -521,3 +521,9 @@ test('alone with the bot, or just answered by it, a sender is talking to it', as
   const followup = await deliver(crowd, { from: { user_id: 'carol' } }, 'and what about dinner');
   assert.equal(followup[0].addressed, 'mention');
 });
+test('who spoke when is forgotten after the windows it serves', async () => {
+  const f = connected(model());
+  f.bot.heard.set('general', new Map([['old', Date.now() - 31 * 60000], ['zed', Date.now()]]));
+  await deliver(f, {}, 'hello');
+  assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
+});
