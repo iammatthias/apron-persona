@@ -1,4 +1,4 @@
-import { named, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
+import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
@@ -19,7 +19,7 @@ export class Bot {
     this.settings = restore(saved);
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.error = null; this.lastError = null;
+    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
@@ -136,7 +136,15 @@ export class Bot {
   addressed(p) {
     const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
     const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`) || named(text, [this.name, this.self]));
-    return addressing(this.settings, mention, this.own.has(p?.reply_to?.message_id));
+    // Who spoke when, per room, in memory only: a sender alone with the bot, or just answered by it, is talking to it.
+    const room = p?.room_id, user = p?.from?.user_id, now = Date.now();
+    let talking = false;
+    if (!incoming(p, this.self, this.bots, this.rooms)) {
+      const heard = this.heard.get(room) ?? new Map();
+      talking = conversing(heard, this.answered.get(room) ?? new Map(), user, now);
+      heard.set(user, now); this.heard.set(room, heard);
+    }
+    return addressing(this.settings, mention || talking, this.own.has(p?.reply_to?.message_id));
   }
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
@@ -279,6 +287,10 @@ export class Bot {
     const sent = this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } });
     this.lastReply = Date.now();
     if (organic) this.organic.set(p.room_id, this.lastReply);
+    if (!organic) {
+      const answered = this.answered.get(p.room_id) ?? new Map();
+      answered.set(p.from.user_id, this.lastReply); this.answered.set(p.room_id, answered);
+    }
     this.context.push({ room: p.room_id, at: this.lastReply, name: 'you', content });
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
     catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }

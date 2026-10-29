@@ -29,6 +29,8 @@ const defaults = { persona: settings.persona.default(), paused: false, reply_men
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
+  // A second person spoke recently, so a message isn't taken as talking to the bot just for being alone with it.
+  bot.heard.set('general', new Map([['zed', Date.now()]]));
   return { bot, ws, saved };
 }
 test('transcript stays in memory and persists only aggregate weights', async () => {
@@ -285,6 +287,7 @@ test('nothing written to DATA_DIR carries anything on the never-store list', asy
     const bot = new Bot({ ...env, ...secrets }, { load: () => load('state.json'), save: s => write('state.json', s) },
       { connect: () => ws, request: model({ scores: { reply: .95, point: .95 }, text: 'model-canary' }) });
     const f = { bot, ws };
+    bot.heard.set('general', new Map([['zed', Date.now()]]));
     bot.tick(); ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
     bot.configure({ organic: 'on', cooldown: '0' });
     assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'chime-canary'))[0].outcome, 'chimed-in');
@@ -506,4 +509,15 @@ test('a message that names the bot without tagging it is answered like a mention
   const f = connected(model());
   assert.deepEqual(await deliver(f, {}, 'bot, you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
   assert.equal(f.ws.sent.filter(x => x.method === 'message').length, 1);
+});
+test('alone with the bot, or just answered by it, a sender is talking to it', async () => {
+  const solo = connected(model());
+  solo.bot.heard.clear();
+  assert.deepEqual(await deliver(solo, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  const crowd = connected(model({ scores: { learn: .9, reply: .9, point: .1 } }));
+  crowd.bot.configure({ organic: 'on' });
+  assert.equal((await deliver(crowd, {}, 'lunch anyone?'))[0].outcome, 'nothing-to-add');
+  crowd.bot.answered.set('general', new Map([['carol', Date.now()]]));
+  const followup = await deliver(crowd, { from: { user_id: 'carol' } }, 'and what about dinner');
+  assert.equal(followup[0].addressed, 'mention');
 });

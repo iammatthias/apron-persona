@@ -90,6 +90,13 @@ export function named(text, names) {
   const words = [...names.map(n => typeof n === 'string' ? n.trim() : '').filter(Boolean), 'bot'].map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'));
   return new RegExp(`(^|[^\\w@])(${words.join('|')})(?![\\w])`, 'i').test(text);
 }
+// Whether a message is part of a conversation with the bot even without a tag or its name: the sender is the only person
+// talking in the room lately, or the bot answered them a moment ago. `heard` maps user_id → when they last spoke here;
+// `answered` maps user_id → when the bot last answered them here.
+export function conversing(heard, answered, user, now, { alone = 30 * 60000, followup = 10 * 60000 } = {}) {
+  const others = [...heard].some(([id, at]) => id !== user && now - at < alone);
+  return !others || now - (answered.get(user) ?? -Infinity) < followup;
+}
 export function addressing(s, mention, reply) {
   if (mention && reply) return !s.reply_mentions && s.reply_replies ? 'reply' : 'mention';
   return mention ? 'mention' : reply ? 'reply' : undefined;

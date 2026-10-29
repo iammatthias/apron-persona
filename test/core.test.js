@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { named, axes, fresh, learn, decay, persona, fingerprint, incoming, decision } from '../src/core.js';
+import { named, conversing, axes, fresh, learn, decay, persona, fingerprint, incoming, decision } from '../src/core.js';
 test('4D cells decay by half-life and centroid has a neutral prior', () => {
   const s = fresh(0); learn(s, [1, 0, .5, .75], 1, 0);
   assert.deepEqual(s.cells, { '4023': 1 });
@@ -51,4 +51,13 @@ test('naming the bot addresses it, but a word that merely contains it does not',
 test('a blank or missing name never matches every message', () => {
   for (const names of [['   '], [''], [undefined, null]]) assert.equal(named('lunch anyone?', names), false);
   assert.equal(named('bot?', ['   ']), true);
+});
+test('conversing: alone in the room, or answered within ten minutes', () => {
+  const now = 1e7, heard = m => new Map(m);
+  assert.equal(conversing(heard([]), new Map(), 'ana', now), true);
+  assert.equal(conversing(heard([['ana', now - 1000]]), new Map(), 'ana', now), true);
+  assert.equal(conversing(heard([['ben', now - 60000]]), new Map(), 'ana', now), false);
+  assert.equal(conversing(heard([['ben', now - 31 * 60000]]), new Map(), 'ana', now), true);
+  assert.equal(conversing(heard([['ben', now - 60000]]), new Map([['ana', now - 9 * 60000]]), 'ana', now), true);
+  assert.equal(conversing(heard([['ben', now - 60000]]), new Map([['ana', now - 11 * 60000]]), 'ana', now), false);
 });
