@@ -85,6 +85,31 @@ test('needs you groups each room\'s unanswered mentions with their reasons, then
   assert.deepEqual(needs({ ...s, events: [], limit: '0', status: { ...s.status, budget: { day: '', calls: 0 } } }), [{ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: 'DAILY_CALLS is 0, so I make no calls today', why: '' }]);
   assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, budget: { day: '', calls: 0 } } }), []);
 });
+test('needs you says which room the bot is resting in and with whom, until someone else speaks there', () => {
+  const rested = (m, extra = {}) => msg(m, 'general', 'looping', { name: 'dave', from: 'u_dave', addressed: 'reply', text: `and ${m}`, ...extra });
+  const resting = needs({ ...s, events: [rested(9), rested(8)] });
+  assert.deepEqual(resting, [
+    { group: 'room', tone: 'warn', href: '/?view=room&room=general', text: '2 mentions in #general got no answer', misses: [{ who: 'dave', at: at(9), why: 'resting' }, { who: 'dave', at: at(8), why: 'resting' }] },
+    { group: 'room', tone: 'warn', href: '/?view=room&room=general', text: "I'm resting with dave in #general until someone else speaks", at: at(8), why: 'we went back and forth 6 times with nobody else around, so their later messages wait too.' },
+  ]);
+  // Someone else spoke in the room since, so the rest is over; the misses stay.
+  const over = needs({ ...s, events: [rested(9), msg(7, 'general', 'learned-only', { name: 'erin', from: 'u_erin', learn_p: .5 })] });
+  assert.deepEqual(over.map(n => n.text), ['1 mention in #general got no answer']);
+  // The same sender's later messages, whatever became of them, keep the rest.
+  const still = needs({ ...s, events: [rested(9), msg(7, 'general', 'duplicate', { name: 'dave', from: 'u_dave' })] });
+  assert.deepEqual(still.map(n => n.text), ['1 mention in #general got no answer', "I'm resting with dave in #general until someone else speaks"]);
+  // Another room's rest is its own item.
+  assert.deepEqual(needs({ ...s, events: [rested(9, { room: 'builds' })] }).map(n => n.text), ['1 mention in #builds got no answer', "I'm resting with dave in #builds until someone else speaks"]);
+  assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, budget: { day: '', calls: 0 } } }), []);
+});
+test('needs you names a watched room the server would not let the bot into', () => {
+  const quiet = { ...s, events: [], status: { ...s.status, budget: { day: '', calls: 0 } } };
+  assert.deepEqual(needs({ ...quiet, unavailable: { builds: 'Room does not exist' } }), [
+    { group: 'room', tone: 'bad', href: '/?view=room&room=builds', text: "#builds doesn't exist or I can't see it", why: 'the server said "Room does not exist" when I tried to join. I\'ll try again when I next sign in.' },
+  ]);
+  assert.deepEqual(needs({ ...quiet, unavailable: {} }), []);
+  assert.deepEqual(needs(quiet), []);
+});
 test('now has a card per room with its latest decisions, and with one room only the needs and the bot', () => {
   const view = now(s);
   assert.deepEqual(view.cards.map(c => [c.id, c.notes, c.read, c.last, c.rows.map(r => r.message_id)]), [
