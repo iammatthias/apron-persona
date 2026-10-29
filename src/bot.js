@@ -2,7 +2,7 @@ import { classify, decision, fresh, decay, learn, seed, persona, fingerprint, in
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
-import { empty, tally, roll, dayOf } from './memory.js';
+import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
 const TTL = 300000;
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
@@ -83,7 +83,7 @@ export class Bot {
       parsed[k] = settings[k].parse(v);
     }
     if (!Object.keys(parsed).length) throw Error('nothing to save');
-    const keys = Object.keys(parsed).filter(k => parsed[k] !== this.settings[k]);
+    const keys = Object.keys(parsed).filter(k => JSON.stringify(parsed[k]) !== JSON.stringify(this.settings[k]));
     this.settings = { ...this.settings, ...parsed }; this.save();
     return keys;
   }
@@ -254,7 +254,7 @@ export class Bot {
     if (connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const body = {
       model: this.env.CHAT_MODEL, max_tokens: 1500,
-      messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name) },
+      messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name, this.notes(p.room_id)) },
         { role: 'user', content: roomPrompt(lines, organic) }],
     };
     // The free router picks a model per call, so one retry usually lands on a different one.
@@ -298,6 +298,13 @@ export class Bot {
       name: m.from?.user_id === this.self ? 'you' : (typeof m.from?.name === 'string' && m.from.name.trim().slice(0, 64)) || m.from?.user_id,
       content: m.body.text.slice(0, 1000),
     }));
+  }
+  // A room's notes for the prompt. Its digest is rebuilt on the first use after UTC midnight and kept all day, in
+  // memory and state.json, so the prompt stays byte-stable between turns; the norms are the owner's current words.
+  notes(room, now = Date.now()) {
+    const today = dayOf(now), pages = this.memory.pages;
+    if (pages[room]?.day !== today) { roll(this.memory, today); pages[room] = digest(this.memory.rooms[room], today); this.dirty = true; }
+    return onepager(room, pages[room], this.settings.norms[room]);
   }
   // What the server's greeting and the auth result said, for the private page.
   details() {

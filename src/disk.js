@@ -1,6 +1,5 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
-import { axes } from './core.js';
-import { topics } from './memory.js';
+import { axes, topics } from './core.js';
 // What never reaches DATA_DIR, and why. The schemas below leave no slot for any of it.
 export const never = {
   'message text': 'people talk to each other in the room, not to a record',
@@ -27,9 +26,16 @@ const state = object({
   budget: object({ day: v => v === '' || date(v), calls: count }),
   settings: object({
     persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
-    cooldown: count, organic: boolean, organic_threshold: number, organic_gap: count,
+    cooldown: count, organic: boolean, organic_threshold: number, organic_gap: count, norms: map(room, owner(1000)),
   }),
-  memory: object({ rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })) }),
+  memory: object({
+    rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })),
+    // A digest, not text: onepager() writes the words each time from these labels and the owner's norms.
+    pages: map(room, object({
+      day: date, mostly: list(one(topics), 2), some: list(one(topics), 2), pace: nullable(one(['busier', 'quieter', 'steady'])),
+      shifts: list(object({ since: date, axis: one(axes), up: boolean }), axes.length),
+    })),
+  }),
 });
 const status = object({
   connected: boolean, paused: boolean, error: nullable(string(/^[a-z0-9-]+$/, 64)),

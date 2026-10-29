@@ -1,7 +1,12 @@
-import { topics, topic } from './memory.js';
 export const axes = ['warmth', 'playfulness', 'curiosity', 'expressiveness'];
 // How each axis reads when it rises or falls, in the bot's words.
 export const leanings = { warmth: ['warmer', 'cooler'], playfulness: ['more playful', 'more serious'], curiosity: ['more curious', 'more matter-of-fact'], expressiveness: ['more expressive', 'terser'] };
+// What a message is about, from a fixed list, so no free text reaches the room memory.
+export const topics = ['code', 'deploys', 'design', 'ai', 'crypto', 'hardware', 'games', 'music', 'food', 'news', 'work', 'life', 'plans', 'banter', 'help', 'meta', 'other'];
+export const topic = x => {
+  const t = typeof x === 'string' ? x.trim().toLowerCase() : '';
+  return topics.includes(t) ? t : 'other';
+};
 export const levels = { low: 0, reserved: .25, balanced: .5, elevated: .75, high: 1 };
 export const descriptions = [
   'social warmth, from reserved to affectionate',

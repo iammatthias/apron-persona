@@ -8,7 +8,7 @@ export const kinds = {
   message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'ago', 'wait', 'detail'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
-  // The new value of each changed setting except the persona, whose text stays out of the log.
+  // The new value of each changed setting except the persona and norms, whose text stays out of the log.
   settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'cooldown', 'organic', 'organic_threshold', 'organic_gap'] },
   error: { label: 'Error', fields: ['code'] },
   // A history job's stage: reading, thinking, ready or failed. Never the history or the draft.
@@ -89,6 +89,7 @@ const changes = {
   organic: toggled('you let me chime in on my own', 'you stopped me chiming in'),
   organic_threshold: v => `you set my chime-in bar to ${p2(v)}`,
   organic_gap: v => `you set my chime-in gap to ${v} min`,
+  norms: () => "you rewrote a room's norms",
 };
 // The dashed break each connection or owner event draws across every room's transcript.
 export const breaks = {

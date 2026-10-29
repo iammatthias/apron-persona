@@ -155,7 +155,7 @@ function drift(personality) {
   return `This room has made me ${list(moved.map(a => leanings[a][personality[a] > .5 ? 0 : 1]))} than where I started (the tick at 0.5).`;
 }
 function me(ctx) {
-  const { settings, status, name } = ctx, [identity, style, rules] = promptParts(settings, status.personality, name).map(escape);
+  const { settings, status, name } = ctx, [identity, style, , rules] = promptParts(settings, status.personality, name).map(escape);
   const persona = ctx.edit
     ? `${post(ctx, '/settings', `<label>who I am, in my own words. {name} becomes ${escape(name)}.<textarea name="persona" maxlength="4000" required>${escape(settings.persona)}</textarea></label>
 <div class="bar"><button class="save">save</button><a href="/?view=who&amp;room=${encodeURIComponent(ctx.room)}">cancel</a><span>${settings.persona.length} of 4000</span></div>`)}
