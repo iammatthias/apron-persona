@@ -38,12 +38,13 @@ export function lab() {
   const sent = role => calls.filter(c => role === 'judge' ? c.body.temperature === 0 : role === 'compose' ? c.body.temperature !== 0 : true);
   return { calls, request, sent };
 }
-// A fake Apron connection that records sent frames and acknowledges each new post and history read; `emit` delivers
-// server frames. Set `history` to the messages a history read returns.
+// A fake Apron connection that records sent frames and acknowledges each new post, room join and history read; `emit`
+// delivers server frames. Set `history` to the messages a history read returns, and `refuse` to the room ids whose
+// join and history the server answers with an error.
 export function socket() {
   const listeners = {}, sent = [];
   return {
-    sent, readyState: 1,
+    sent, readyState: 1, refuse: new Set(),
     addEventListener(type, f) { (listeners[type] ??= []).push(f); },
     removeEventListener(type, f) { listeners[type] = listeners[type]?.filter(g => g !== f); },
     emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
@@ -51,7 +52,8 @@ export function socket() {
     send(raw) {
       const frame = JSON.parse(raw); sent.push(frame);
       if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
-      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit({ id: frame.id, result: { messages: this.history ?? [] } }));
+      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { message: 'Room does not exist' } } : { id: frame.id, result: { messages: this.history ?? [] } }));
+      if (frame.method === 'room_join') queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { message: 'Room does not exist' } } : { id: frame.id, result: {} }));
     },
   };
 }

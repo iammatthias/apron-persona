@@ -9,6 +9,8 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { socket } from './fakes.js';
+import { snapshot } from '../src/http.js';
+import { needs } from '../src/views.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {} };
@@ -622,6 +624,35 @@ test('who spoke when is forgotten after the windows it serves', async () => {
   // Reading how a message addresses the bot records nothing: only its arrival does.
   f.bot.addressed({ room_id: 'general', message_id: 'x', from: { user_id: 'dave' }, body: { text: 'hi' } });
   assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
+});
+test('a room the server refuses is left alone until the next sign-in, and needs you says so', async () => {
+  const sockets = [], tick = () => new Promise(r => setTimeout(r, 0));
+  const bot = new Bot({ ...env, ROOMS: 'general,ghost' }, { load: () => ({}), save() {} }, { connect: () => { const ws = socket(); ws.refuse = new Set(['ghost']); sockets.push(ws); return ws; }, request: model() });
+  bot.tick();
+  const [ws] = sockets;
+  ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  assert.deepEqual(ws.sent.filter(f => f.method === 'room_join').map(f => f.params.room_id), ['general', 'ghost']);
+  await tick();
+  assert.deepEqual([...bot.unavailable], [['ghost', 'Room does not exist']]);
+  assert.deepEqual((await bot.posts()).length, 0);
+  assert.deepEqual(ws.sent.filter(f => f.method === 'history').map(f => f.params.room_id), ['general']);
+  assert.equal(await bot.recent({ room_id: 'ghost', message_id: 'x' }), null);
+  assert.deepEqual(ws.sent.filter(f => f.method === 'history').map(f => f.params.room_id), ['general']);
+  assert.deepEqual(needs(await snapshot(bot)).map(n => [n.text, n.why]), [["#ghost doesn't exist or I can't see it", 'the server said "Room does not exist" when I tried to join. I\'ll try again when I next sign in.']]);
+  // A room that joined but whose history the server then refuses is marked the same way, and the others still read.
+  ws.refuse.add('general');
+  assert.deepEqual(await bot.posts(), []);
+  assert.deepEqual([...bot.unavailable.keys()], ['ghost', 'general']);
+  assert.equal(ws.sent.filter(f => f.method === 'history').length, 2);
+  await bot.posts();
+  assert.equal(ws.sent.filter(f => f.method === 'history').length, 2);
+  // The next sign-in tries every room again.
+  ws.close(); bot.tick();
+  const [, next] = sockets;
+  next.emit({ method: 'server', params: {} }); next.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  assert.deepEqual([next.sent.filter(f => f.method === 'room_join').map(f => f.params.room_id), bot.unavailable.size], [['general', 'ghost'], 0]);
+  await tick();
+  assert.deepEqual([...bot.unavailable], [['ghost', 'Room does not exist']]);
 });
 test('a signed-in connection the network breaks is retried in seconds, a refused or switched one is not', async () => {
   const sockets = [];
