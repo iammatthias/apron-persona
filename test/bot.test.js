@@ -630,6 +630,26 @@ test("a room the bot is resting in still answers its owner at no cost to the oth
   assert.equal((await replyTo(f, 'ada', 'so, where were we'))[0].outcome, 'replied');
   assert.deepEqual([posts(f.ws).length, calls], [8, 17]);
 });
+test('a message the bot rests on is neither sized up nor learned from, however eligible its sender', async () => {
+  let calls = 0;
+  // learn .5 never lapses a sender's eligibility, so without the rest every message of theirs would be classified.
+  const f = connected(async (...a) => { ++calls; return model({ scores: { learn: .5, reply: .9 } })(...a); });
+  await deliver(f, { from: { user_id: 'pat' } }, 'hey @bot_me');
+  for (let i = 1; i < 6; ++i) await replyTo(f, 'pat', `and then ${i}`);
+  assert.deepEqual([posts(f.ws).length, calls], [6, 12]);
+  const mine = f.bot.log.list().findLast(e => e.kind === 'posted').message_id;
+  assert.deepEqual(await replyTo(f, 'pat', 'and then 6'), [{ room: 'general', message_id: 'this', reply_to: mine, from: 'pat', addressed: 'mention', outcome: 'looping' }]);
+  assert.deepEqual(await deliver(f, { from: { user_id: 'hana' } }, 'oh hi @bot_me'), [{ room: 'general', message_id: 'this', from: 'hana', addressed: 'mention', outcome: 'looping' }]);
+  assert.equal(calls, 12);
+  assert.deepEqual(f.bot.state.cells, {});
+  // With chiming in on, a message nobody addressed to the bot is rested the same way; with it off it is classified to learn from.
+  f.bot.configure({ organic: 'on' });
+  assert.deepEqual(await deliver(f, { from: { user_id: 'erin' } }, 'what did I miss'), [{ room: 'general', message_id: 'this', from: 'erin', outcome: 'looping' }]);
+  assert.equal(calls, 12);
+  f.bot.configure({ organic: 'off' });
+  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'anyone?'))[0].outcome, 'learned-only');
+  assert.equal(calls, 13);
+});
 test('the owner is who the server says, or failing that whoever the bot_ prefix names', () => {
   const named = fixture(model());
   named.bot.tick(); named.ws.emit({ method: 'server', params: {} });

@@ -61,12 +61,14 @@ test("after six of a room's last eighteen turns were its own, the bot rests ther
   // A setting that is off is the standing reason; the rest applies only where the bot would otherwise speak.
   assert.deepEqual(decide(undefined, 6, { organic: false }), { respond: null, outcome: 'learned-only' });
   assert.deepEqual(decide('mention', 6, { reply_mentions: false }), { respond: null, outcome: 'trigger-off' });
-  // Resting, a sender's message is not sized up either unless there is something to learn from it.
-  assert.equal(trigger(base, { addressed: 'mention', eligible: true, turns: 6 }), null);
+  // Resting, a message the bot would otherwise have answered or chimed in on is not sized up either, whatever there is to learn from it.
+  assert.deepEqual(trigger(base, { addressed: 'mention', eligible: true, turns: 6 }), { respond: null, outcome: 'looping' });
   assert.equal(trigger(base, { addressed: 'mention', eligible: false, turns: 5 }), null);
   assert.deepEqual(trigger(base, { addressed: 'mention', eligible: false, turns: 6 }), { respond: null, outcome: 'looping' });
   assert.deepEqual(trigger({ ...base, reply_mentions: false }, { addressed: 'mention', eligible: false, turns: 6 }), { respond: null, outcome: 'trigger-off' });
-  assert.deepEqual(trigger({ ...base, organic: true }, { addressed: undefined, eligible: false, turns: 6 }), { respond: null, outcome: 'rate-limited' });
+  assert.deepEqual(trigger({ ...base, organic: true }, { addressed: undefined, eligible: true, turns: 6 }), { respond: null, outcome: 'looping' });
+  assert.deepEqual(trigger({ ...base, organic: true }, { addressed: undefined, eligible: false, turns: 6 }), { respond: null, outcome: 'looping' });
+  assert.equal(trigger(base, { addressed: undefined, eligible: true, turns: 6 }), null);
 });
 test('a chime-in also needs a point that clears the same bar; mentions and replies never ask for one', () => {
   const decide = (s, addressed, reply_p, point_p, since) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p, point_p, since });
