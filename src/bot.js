@@ -34,8 +34,9 @@ export class Bot {
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.newest = new Map(); this.drafting = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
     // Per room: who took each of its last LOOP_WINDOW turns, oldest first. null is a message from someone else; a string
-    // is a turn of the bot's own, naming whom it answered ('' for a chime-in). A message dropped before it is handled
-    // (busy, paused) takes no turn. Turns answering the owner never rest the room; they still pace chime-ins.
+    // is a turn of the bot's own (a post, or a draft its sender talked over), naming whom it answered ('' for a
+    // chime-in). A message dropped before it is handled (busy, paused) takes no turn. Turns answering the owner never
+    // rest the room; they still pace chime-ins.
     this.turns = new Map();
     // Watched rooms the server refused this sign-in, with what it said. Asking again for a room it refused drew
     // "Repeated policy violations" and a dropped connection, so one is left alone until the next sign-in tries it again.
@@ -315,19 +316,23 @@ export class Bot {
     const log = this.turns.get(p.room_id) ?? [], last = log.findLastIndex(x => x !== null);
     const turns = p.from.user_id === this.owner ? 0 : log.filter(x => x !== null && x !== this.owner).length;
     const since = last < 0 ? Infinity : log.length - last;
-    // What this message left in the room: a turn of its sender's, and one of the bot's where its post went out.
-    const took = result => {
-      log.push(null);
-      if (result.posted) log.push(result.posted.organic ? '' : p.from.user_id);
+    // What this message left in the room: a turn of its sender's, and one of the bot's where its post went out. A
+    // message its sender talked over took no turn of theirs; the draft it ended, if one had started, took one of the
+    // bot's, so a burst that talks over every draft rests the room as surely as one that draws every reply.
+    const took = (result, spent = false) => {
+      if (result.outcome !== 'superseded') log.push(null);
+      if (result.posted || (result.outcome === 'superseded' && spent)) log.push(result.posted?.organic ? '' : p.from.user_id);
       this.turns.set(p.room_id, log.slice(-LOOP_WINDOW));
       return result;
     };
+    if (addressed && !mine && pending?.has(p.from.user_id)) return took({ outcome: 'superseded' });
     const early = trigger(this.settings, { addressed, eligible, since, turns });
     if (early) return took({ outcome: early.outcome });
-    if (addressed && !mine && pending?.has(p.from.user_id)) return took({ outcome: 'superseded' });
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
+    let spent = false;
     const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
     const asked = async (role, body, parse) => {
+      spent = true;
       const r = await timed(role, () => this.ask(role, body, parse, run.signal, () => hedged.includes(role) || hedged.push(role)));
       via[role] = r.model;
       return r.value;
@@ -342,7 +347,7 @@ export class Bot {
     try {
       const result = await this.pipeline(p, { text, addressed, eligible, participant, since, turns, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
-      return took({ ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} });
+      return took({ ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} }, spent);
     } finally {
       run.abort(Error('settled'));
       if (this.drafting.get(p.room_id) === slot) this.drafting.delete(p.room_id);

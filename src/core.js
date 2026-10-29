@@ -103,8 +103,8 @@ export function addressing(s, mention, reply) {
 }
 const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
 // How many of a room's last LOOP_WINDOW turns the bot may take before it rests there: a third. A turn of its own is a
-// post, except one answering its owner (bot.js keeps the count, and passes 0 for the owner). Six in a row is a longer
-// solo exchange than a regular holds in a public room before someone else joins
+// post, or a draft its sender talked over, except one answering its owner (bot.js keeps the count, and passes 0 for
+// the owner). Six in a row is a longer solo exchange than a regular holds in a public room before someone else joins
 // in; eighteen makes a third the ceiling, which holds however the senders alternate: two peer bots nobody flagged, or
 // one on two accounts, draw six answers, then eight rests, then six, where a count per sender started over whenever
 // anyone else spoke. With a ceiling of half (six of twelve) a pair taking turns is answered four times in five.
