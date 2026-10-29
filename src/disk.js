@@ -1,5 +1,6 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
 import { axes } from './core.js';
+import { topics } from './memory.js';
 // What never reaches DATA_DIR, and why. The schemas below leave no slot for any of it.
 export const never = {
   'message text': 'people talk to each other in the room, not to a record',
@@ -15,6 +16,12 @@ const date = string(/^\d{4}-\d{2}-\d{2}$/, 10);
 // The only free text allowed: what the owner wrote on the admin portal.
 const owner = max => string(/^[^]*$/, max);
 const object = fields => ({ fields }), map = (key, value) => ({ key, value }), nullable = of => ({ nullable: of });
+const list = (of, max, min = 0) => ({ list: of, max, min }), one = xs => v => xs.includes(v);
+const room = string(/^\S+$/, 64);
+const bucket = object({
+  topics: map(one(topics), object({ messages: count, engaged: count, replies: count, chimes: count })),
+  learned: count, lean: list(number, 4, 4),
+});
 const state = object({
   personality: object({ version: count, at: number, cells: map(string(/^[0-4]{4}$/, 4), number) }),
   budget: object({ day: v => v === '' || date(v), calls: count }),
@@ -22,6 +29,7 @@ const state = object({
     persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
     cooldown: count, organic: boolean, organic_threshold: number, organic_gap: count,
   }),
+  memory: object({ rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })) }),
 });
 const status = object({
   connected: boolean, paused: boolean, error: nullable(string(/^[a-z0-9-]+$/, 64)),
@@ -37,6 +45,10 @@ function walk(schema, v, at) {
   const refuse = () => { throw Error(`refused to store ${at}`); };
   if (typeof schema === 'function') return schema(v) || refuse();
   if (schema.nullable) return v === null || walk(schema.nullable, v, at);
+  if (schema.list) {
+    if (!Array.isArray(v) || v.length > schema.max || v.length < schema.min) refuse();
+    return v.forEach((x, i) => walk(schema.list, x, `${at}.${i}`));
+  }
   if (!v || typeof v !== 'object' || Array.isArray(v)) refuse();
   if (schema.fields) {
     for (const k of Object.keys(v)) if (!Object.hasOwn(schema.fields, k)) throw Error(`refused to store ${at}.${k}`);
@@ -46,6 +58,7 @@ function walk(schema, v, at) {
     walk(schema.value, x, `${at}.${k}`);
   }
 }
+export const fits = (schema, value) => { try { walk(schema, value, ''); return true; } catch { return false; } };
 export function check(name, value) {
   if (!Object.hasOwn(schemas, name)) throw Error(`refused to store ${name}`);
   walk(schemas[name], value, name);

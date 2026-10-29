@@ -2,6 +2,8 @@ import { classify, decision, fresh, decay, learn, seed, persona, fingerprint, in
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
 import { Log, event } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
+import { empty, tally, roll, dayOf } from './memory.js';
+import { schemas, fits } from './disk.js';
 const TTL = 300000;
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
@@ -12,12 +14,14 @@ export class Bot {
     this.state = saved.personality ?? fresh();
     this.budget = saved.budget ?? { day: '', calls: 0 };
     this.settings = restore(saved);
+    // A state.json from before the room memory, or one whose memory no longer fits, starts it empty.
+    this.memory = fits(schemas['state.json'].fields.memory, saved.memory) ? saved.memory : empty();
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   save() {
-    this.store.save({ personality: this.state, budget: this.budget, settings: this.settings });
+    this.store.save({ personality: this.state, budget: this.budget, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) });
     this.dirty = false;
   }
   record(kind, fields) { this.log.push(event(kind, fields)); }
@@ -165,8 +169,9 @@ export class Bot {
       if (skip) return this.record('message', { ...seen, text: text(addressed), outcome: skip });
       ++this.pending;
       this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
-        .then(({ posted, respond, ...result }) => {
+        .then(({ posted, respond, topic, ...result }) => {
           this.record('message', { ...seen, text: text(addressed || respond), ...result });
+          if (topic) { tally(this.memory, p.room_id, dayOf(Date.now()), { topic, engaged: !!addressed, outcome: result.outcome, style: result.style }); this.dirty = true; }
           if (posted) this.record('posted', { room: p.room_id, ...posted });
         }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
@@ -240,7 +245,7 @@ export class Bot {
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
-    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, style: learned ? result.vector : undefined };
+    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
     const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point }, { ...clocks, lastReply: this.lastReply });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';

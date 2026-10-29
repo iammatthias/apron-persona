@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { check, disk } from '../src/disk.js';
 import { restore } from '../src/settings.js';
-const state = { personality: { version: 1, at: 5, cells: { '2222': .5 } }, budget: { day: '2026-10-29', calls: 3 }, settings: restore({}) };
+const state = { personality: { version: 1, at: 5, cells: { '2222': .5 } }, budget: { day: '2026-10-29', calls: 3 }, settings: restore({}), memory: { rooms: { general: { days: { '2026-10-29': { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 } }, learned: 1, lean: [.25, 0, 0, -.25] } }, weeks: {} } } } };
 const status = { connected: true, paused: false, error: null, server: { host: 'server.apron.chat', agent: 'apron 0.4', user_id: 'bot_me' }, budget: { day: '', calls: 0 }, personality: { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 } };
 test('state, status and apron files pass when they hold only their allowed keys and types', () => {
   assert.equal(check('state.json', state), state);
@@ -22,6 +22,13 @@ test('an injected field, a wrong type or free text outside the owner settings is
   refused('state.json', { ...state, budget: { day: 'hey canary', calls: 1 } }, 'refused to store state.json.budget.day');
   refused('state.json', { personality: state.personality, budget: state.budget }, 'refused to store state.json.settings');
   refused('state.json', [], 'refused to store state.json');
+  const day = state.memory.rooms.general.days['2026-10-29'];
+  const room = days => ({ ...state, memory: { rooms: { general: { days, weeks: {} } } } });
+  refused('state.json', room({ '2026-10-29': { ...day, topics: { 'hey canary': day.topics.code } } }), 'refused to store a key in state.json.memory.rooms.general.days.2026-10-29.topics');
+  refused('state.json', room({ '2026-10-29': { ...day, topics: { code: { ...day.topics.code, said: 'hey canary' } } } }), 'refused to store state.json.memory.rooms.general.days.2026-10-29.topics.code.said');
+  refused('state.json', room({ '2026-10-29': { ...day, lean: [0, 0, 0] } }), 'refused to store state.json.memory.rooms.general.days.2026-10-29.lean');
+  refused('state.json', room({ 'last tuesday': day }), 'refused to store a key in state.json.memory.rooms.general.days');
+  refused('state.json', { ...state, memory: { rooms: {}, speakers: { carol: 3 } } }, 'refused to store state.json.memory.speakers');
   refused('status.json', { ...status, error: 'Hey canary, what is up' }, 'refused to store status.json.error');
   refused('status.json', { ...status, server: { ...status.server, user_id: 'carol said hi' } }, 'refused to store status.json.server.user_id');
   refused('status.json', { ...status, server: { ...status.server, agent: 'line\nbreak' } }, 'refused to store status.json.server.agent');

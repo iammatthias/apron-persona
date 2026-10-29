@@ -147,7 +147,10 @@ test('a legacy state.json with top-level name and paused migrates into settings'
   const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, name: 'Old Ghost', paused: true }));
   assert.deepEqual(bot.settings, { ...defaults, paused: true });
   bot.save();
-  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { ...defaults, paused: true } });
+  assert.deepEqual(bot.memory, { rooms: {} });
+  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, settings: { ...defaults, paused: true }, memory: { rooms: {} } });
+  const broken = fixture(undefined, () => ({ personality, memory: { rooms: { general: { days: { yesterday: 'carol said hi' }, weeks: {} } } } }));
+  assert.deepEqual(broken.bot.memory, { rooms: {} });
 });
 test('a saved persona persists, and a reply sees the room as one named transcript and posts a clean line', async () => {
   const bodies = [];
@@ -389,6 +392,22 @@ test('a welcome chime-in with nothing specific to add stays quiet and keeps no t
   assert.equal(posts(f.ws).length, 0);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).point_p, .42);
+});
+test('the room memory counts only messages it classified, by day and topic, with no extra classifier call', async () => {
+  let calls = 0;
+  const answer = model({ scores: { reply: .95, point: .95, topic: 'deploys', warmth: 'high' } });
+  const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++calls; return answer(url, init); });
+  f.bot.configure({ organic: 'on', cooldown: '0' });
+  const outcomes = [];
+  for (const [params, text] of [[{}, 'did it ship'], [{}, 'did it ship'], [{}, 'anyone?'], [{ from: { user_id: 'dave' } }, 'deploy @bot_me'], [{ room_id: 'random' }, 'elsewhere'], [{ from: { user_id: 'bot_other' } }, 'beep']])
+    outcomes.push((await deliver(f, params, text))[0].outcome);
+  assert.deepEqual(outcomes, ['chimed-in', 'duplicate', 'rate-limited', 'replied', 'other-room', 'from-bot']);
+  assert.equal(calls, 2);
+  const today = new Date().toISOString().slice(0, 10);
+  assert.deepEqual(f.bot.memory, { rooms: { general: { days: { [today]: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0] } }, weeks: {} } } });
+  const failed = connected(model({ status: 500 }));
+  assert.equal((await deliver(failed))[0].outcome, 'replied');
+  assert.deepEqual(failed.bot.memory, { rooms: {} });
 });
 test('saving settings records only the values that changed', () => {
   const { bot } = connected();
