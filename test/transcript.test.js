@@ -107,7 +107,28 @@ test('a post deleted later loses its delete, and a message that did not engage t
 test('today counts replies, unanswered mentions and things learned since midnight UTC', () => {
   const day = Date.UTC(2026, 9, 28), at = n => day + n;
   const shifted = [{ ...events[1], at: day - 1 }, ...events.slice(2).map(e => ({ ...e, at: at(e.at) }))];
-  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 9, learned: 2 });
-  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 9, learned: 2 });
-  assert.deepEqual(today([], at(100)), { since: at(100), replies: 0, unanswered: 0, learned: 0 });
+  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 9, learned: 2, speed: null });
+  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 9, learned: 2, speed: null });
+  assert.deepEqual(today([], at(100)), { since: at(100), replies: 0, unanswered: 0, learned: 0, speed: null });
+});
+test('a reply with spans says how long it took, carries the breakdown as a tooltip, and feeds the day\'s median and p90', () => {
+  const spans = { ms: { context: 310, judge: 640, compose: 920, post: 80, total: 1400 }, via: { judge: 'cohere/north-mini-code', compose: 'openrouter/free' }, hedged: ['compose'] };
+  const answered = [
+    msg(2, 'replied', { name: 'ana', addressed: 'mention', text: '@bot morning!', learn_p: .9, reply_p: .97, ...spans }),
+    msg(3, 'chimed-in', { text: 'ramen?', learn_p: .9, reply_p: .93, ms: { judge: 500, context: 200, compose: 1800, post: 100, total: 2600 }, via: { judge: 'x', compose: 'y' } }),
+    msg(4, 'replied', { addressed: 'mention', text: '@bot again', detail: 'timeout', ms: { context: 200, compose: 700, post: 100, total: 11000 }, via: { compose: 'y' } }),
+    msg(5, 'declined', { addressed: 'mention', text: '@bot no', learn_p: .9, reply_p: .2, need: .7, ms: { context: 200, judge: 500, total: 520 } }),
+  ];
+  const rows = transcript(answered, ['general']).rooms[0].rows;
+  assert.deepEqual(rows.map(r => [r.margin, r.title]), [
+    ['answered in 1.4s. I was 0.97 sure a reply fit.', 'context 0.3s · judge 0.6s · compose 0.9s · post 0.1s · judge by cohere/north-mini-code · compose by openrouter/free, hedged'],
+    ["chimed in unprompted in 2.6s. I was 0.93 sure it'd be welcome.", 'context 0.2s · judge 0.5s · compose 1.8s · post 0.1s · judge by x · compose by y'],
+    ["answered in 11.0s, though I couldn't size it up first (timeout).", 'context 0.2s · compose 0.7s · post 0.1s · compose by y'],
+    ["didn't answer. reply chance 0.20, I need 0.70.", undefined],
+  ]);
+  assert.ok(!Object.hasOwn(rows[3], 'title'));
+  const day = Date.UTC(2026, 9, 28);
+  assert.deepEqual(today(answered.map(e => ({ ...e, at: day + e.at })), day + 100).speed, { median: 2600, p90: 11000, n: 3 });
+  const ten = Array.from({ length: 10 }, (_, i) => msg(10 + i, 'replied', { addressed: 'mention', text: 'x', reply_p: .9, ms: { total: (i + 1) * 100 } }));
+  assert.deepEqual(today(ten.map(e => ({ ...e, at: day + e.at })), day + 100).speed, { median: 500, p90: 900, n: 10 });
 });

@@ -1,5 +1,10 @@
-import { margins, breaks } from './events.js';
+import { margins, breaks, secs, stages } from './events.js';
 const who = e => e.name ?? e.from ?? 'someone';
+// What a reply's time went on and who answered, for its margin's tooltip.
+const timing = e => [
+  ...stages.filter(k => e.ms[k] !== undefined).map(k => `${k} ${secs(e.ms[k])}`),
+  ...Object.entries(e.via ?? {}).map(([role, m]) => `${role} by ${m}${e.hedged?.includes(role) ? ', hedged' : ''}`),
+].join(' · ');
 // A mention or reply in a watched room that got no answer.
 const unanswered = e => !!e.addressed && margins[e.outcome].place === 'room' && !margins[e.outcome].answered;
 // Each watched room's transcript as the bot saw it, oldest first, plus the messages it ignored elsewhere.
@@ -13,7 +18,7 @@ export function transcript(events, rooms) {
       const m = margins[e.outcome];
       senders.set(e.message_id, who(e));
       if (!m.place) continue;
-      const row = { kind: 'message', at: e.at, message_id: e.message_id, who: who(e), text: e.text, tone: m.tone, unanswered: unanswered(e), margin: m.say(e) };
+      const row = { kind: 'message', at: e.at, message_id: e.message_id, who: who(e), text: e.text, tone: m.tone, unanswered: unanswered(e), margin: m.say(e), ...m.answered && e.ms ? { title: timing(e) } : {} };
       const target = m.place === 'room' ? room(e.room) : null;
       if (!target) { out.elsewhere.push({ ...row, room: e.room }); continue; }
       target.rows.push(row);
@@ -31,14 +36,19 @@ export function transcript(events, rooms) {
   }
   return out;
 }
-// What the bot did since the later of midnight UTC and the oldest event it remembers.
+// The nearest-rank percentile of a sorted list.
+const rank = (sorted, p) => sorted[Math.ceil(p * sorted.length) - 1];
+// What the bot did since the later of midnight UTC and the oldest event it remembers. speed is how long its replies
+// took, median and 90th percentile in milliseconds over n of them, or null before the first.
 export function today(events, now = Date.now()) {
   const midnight = new Date(now).setUTCHours(0, 0, 0, 0), recent = events.filter(e => e.at >= midnight);
   const messages = recent.filter(e => e.kind === 'message');
+  const totals = messages.filter(e => margins[e.outcome].answered && e.ms?.total !== undefined).map(e => e.ms.total).sort((a, b) => a - b);
   return {
     since: Math.max(midnight, events[0]?.at ?? now),
     replies: recent.filter(e => e.kind === 'posted').length,
     unanswered: messages.filter(unanswered).length,
     learned: messages.filter(e => e.style).length,
+    speed: totals.length ? { median: rank(totals, .5), p90: rank(totals, .9), n: totals.length } : null,
   };
 }

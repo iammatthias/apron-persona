@@ -2,6 +2,7 @@ import { escape, doc } from './page.js';
 import { promptParts, cue, chime } from './settings.js';
 import { axes, leanings } from './core.js';
 import { transcript, today } from './transcript.js';
+import { secs } from './events.js';
 const css = `:root{color-scheme:light dark;--fg:#1d1c1a;--muted:#7b776f;--faint:#aca79c;--bg:#f7f5f0;--paper:#fffefa;--line:#e3dfd5;--ok:#2f7a55;--warn:#a1650a;--bad:#b3261e;--me:#eef3ee}
 @media(prefers-color-scheme:dark){:root{--fg:#ebe8e0;--muted:#9b978e;--faint:#635f58;--bg:#131211;--paper:#1a1917;--line:#2d2b27;--ok:#7cc79f;--warn:#e3ab57;--bad:#f08a80;--me:#1b261f}}
 *{box-sizing:border-box}
@@ -111,7 +112,7 @@ export function row(r, ctx) {
   if (r.kind === 'message' && r.text === undefined) return `<div class="m q"${at}><div class="msg">${time(r.at)}<p><span class="n">${who}</span> · ${escape(r.margin)}</p></div></div>`;
   const note = r.kind === 'post'
     ? `<div class="note">${escape(r.margin)}${r.deleted ? '' : ` ${post(ctx, '/delete', `<input type="hidden" name="room_id" value="${escape(r.room)}"><input type="hidden" name="message_id" value="${escape(r.message_id)}"><button class="del">delete</button>`)}`}</div>`
-    : `<div class="note${r.tone ? ` ${r.tone}` : ''}">${escape(r.margin)}</div>`;
+    : `<div class="note${r.tone ? ` ${r.tone}` : ''}"${r.title ? ` title="${escape(r.title)}"` : ''}>${escape(r.margin)}</div>`;
   const cls = r.kind === 'post' ? ` self${r.deleted ? ' gone' : ''}` : '';
   return `<div class="m${cls}"${at}${r.kind === 'post' ? ` data-message-id="${escape(r.message_id)}"` : ''}><div class="msg">${time(r.at)}<div><div class="n">${r.kind === 'post' ? 'me' : who}</div><p>${escape(r.text)}</p></div></div>${note}</div>`;
 }
@@ -229,7 +230,8 @@ function budget({ events, limit, calls, now }) {
   const cells = n ? `<div class="day" style="--n:${n}">${'<i class="u"></i>'.repeat(lit)}${'<i></i>'.repeat(n - lit)}</div>` : '';
   const since = d.since > midnight ? ` since <time datetime="${new Date(d.since).toISOString()}">${hhmm(d.since)} UTC</time>` : '';
   return `<section id="today"><h2>today</h2><div class="card">${cells}
-<p class="small">${max ? `${calls} of ${escape(limit)} calls.` : 'No calls allowed today.'} ${plural(d.replies, 'reply', 'replies')}, ${plural(d.unanswered, 'mention')} I didn't answer, ${plural(d.learned, 'thing')} learned${since}.</p></div></section>`;
+<p class="small">${max ? `${calls} of ${escape(limit)} calls.` : 'No calls allowed today.'} ${plural(d.replies, 'reply', 'replies')}, ${plural(d.unanswered, 'mention')} I didn't answer, ${plural(d.learned, 'thing')} learned${since}.</p>
+<p class="small">speed today: ${d.speed ? `median ${secs(d.speed.median)}, p90 ${secs(d.speed.p90)}, over ${plural(d.speed.n, 'reply', 'replies')}.` : 'no replies yet.'}</p></div></section>`;
 }
 function said(ctx) {
   const { posts } = ctx;

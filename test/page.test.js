@@ -8,7 +8,7 @@ const status = { connected: true, paused: false, error: null, budget: { day: '20
 const at = m => now - m * 60000;
 const events = [
   { at: at(9), kind: 'message', room: 'general', message_id: '1', from: 'u_ben', name: 'ben', outcome: 'learned-only', learn_p: .91, reply_p: .1, style: [.75, .5, .5, .5] },
-  { at: at(8), kind: 'message', room: 'general', message_id: '2', from: 'u_ana', name: 'ana<i>', addressed: 'mention', text: '@bot </p><script>x</script>', outcome: 'replied', learn_p: .5, reply_p: .97 },
+  { at: at(8), kind: 'message', room: 'general', message_id: '2', from: 'u_ana', name: 'ana<i>', addressed: 'mention', text: '@bot </p><script>x</script>', outcome: 'replied', learn_p: .5, reply_p: .97, ms: { context: 310, judge: 640, compose: 920, post: 80, total: 1400 }, via: { judge: 'cohere/north-mini-code', compose: 'a"b' } },
   { at: at(7), kind: 'posted', room: 'general', message_id: 'p"1', reply_to: '2', text: '<img src=x onerror=alert(1)>' },
   { at: at(6), kind: 'message', room: 'general', message_id: '3', from: 'u_lin', name: 'lin', addressed: 'mention', text: '@bot one', outcome: 'declined', learn_p: .5, reply_p: .42 },
   { at: at(5), kind: 'message', room: 'random', message_id: '4', from: 'u_lin', name: 'lin', addressed: 'mention', text: '@bot two', outcome: 'budget' },
@@ -69,8 +69,14 @@ test('who I am shows the persona, the drift from the start, and the exact prompt
   assert.ok(edit.includes('<input type="hidden" name="view" value="who">') && edit.includes('action="/persona/reset"'));
   assert.ok(dashboard({ ...ctx, status: { ...status, personality: { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 } } }).includes("I'm still where I started, at the tick (0.5)."));
 });
+test('a replied message says how long it took, with the stages in its tooltip', () => {
+  const html = dashboard(ctx);
+  assert.ok(html.includes('<div class="note ok" title="context 0.3s · judge 0.6s · compose 0.9s · post 0.1s · judge by cohere/north-mini-code · compose by a&#34;b">answered in 1.4s. I was 0.97 sure a reply fit.</div>'));
+});
 test('today counts calls as cells and sums up the day', () => {
   const html = dashboard(ctx);
+  assert.ok(html.includes('<p class="small">speed today: median 1.4s, p90 1.4s, over 1 reply.</p>'));
+  assert.ok(dashboard({ ...ctx, events: ctx.events.filter(e => !e.ms) }).includes('<p class="small">speed today: no replies yet.</p>'));
   assert.ok(html.includes(`<div class="day" style="--n:40">${'<i class="u"></i>'.repeat(3)}${'<i></i>'.repeat(37)}</div>`));
   assert.ok(html.includes(`3 of 40 calls. 1 reply, 3 mentions I didn't answer, 1 thing learned since <time datetime="${new Date(at(9)).toISOString()}">14:22 UTC</time>.</p>`));
   const none = dashboard({ ...ctx, limit: '0' });
