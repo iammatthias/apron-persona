@@ -48,3 +48,7 @@ test('naming the bot addresses it, but a word that merely contains it does not',
   for (const t of ['bot, you there?', 'hey Bot of Matthias', 'yo bot_guest_1', 'Bot?']) assert.equal(named(t, names), true, t);
   for (const t of ['the robot army', 'bots are fun', 'about my chatbot', 'sabot', 'ping @someone']) assert.equal(named(t, names), false, t);
 });
+test('a blank or missing name never matches every message', () => {
+  for (const names of [['   '], [''], [undefined, null]]) assert.equal(named('lunch anyone?', names), false);
+  assert.equal(named('bot?', ['   ']), true);
+});
