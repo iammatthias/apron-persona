@@ -106,8 +106,9 @@ test('every outcome has a margin, and a learned style names its strongest lean',
   // A superseded message claims no answer: whether the later one was answered is its own row.
   assert.equal(margins.superseded.say({}), 'you kept going, so I moved on to your latest.');
   assert.deepEqual([margins.superseded.answered, margins.superseded.fold, margins.superseded.miss], [undefined, true, 'moved on']);
-  // Resting is a state the owner should see, so it never folds into a quiet run.
-  assert.deepEqual([margins.looping.fold, margins.looping.miss], [undefined, 'resting']);
+  // A rested mention keeps its text, so the owner sees it; a rested message nobody addressed to the bot folds into a quiet run.
+  assert.deepEqual([margins.looping.fold, margins.looping.miss], [true, 'resting']);
+  assert.deepEqual(transcript([msg(2, 'looping'), msg(3, 'looping')], ['general']).rooms[0].rows.map(r => r.quiet), [true, true]);
 });
 test('a message the bot rested on is an unanswered mention, with its margin saying why', () => {
   const rested = [msg(2, 'looping', { addressed: 'reply', text: 'and another thing' })];

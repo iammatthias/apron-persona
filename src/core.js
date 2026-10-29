@@ -115,15 +115,18 @@ export const LOOP_TURNS = 6, LOOP_WINDOW = 18;
 export const CHIME_EVERY = 4;
 // Whether the bot responds to one message, and the outcome with the bar that decided it. Before classification (no
 // reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
-// eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and comes at most
+// eligible for learning are considered. A message the bot would otherwise answer or chime in on while it rests is not
+// classified at all, so a rested room costs nothing and teaches nothing; a setting that is off is the standing reason
+// and comes first. A chime-in also needs something concrete to say (point_p), and comes at most
 // once per CHIME_EVERY messages from others (since: how many have followed the bot's last post here, this one
 // included; none yet posted counts as plenty). turns is how many of the room's last LOOP_WINDOW turns were the bot's
 // own. Nothing here is a matter of time: someone talking to the bot is answered however recently it posted.
 export function trigger(s, { addressed, eligible, reply_p, point_p, since = Infinity, turns = 0 }) {
-  const open = !!addressed && s[gates[addressed]], looping = turns >= LOOP_TURNS;
+  const open = !!addressed && s[gates[addressed]], live = open || (!addressed && s.organic), looping = turns >= LOOP_TURNS;
   if (reply_p === undefined) {
-    if (eligible || (open && !looping)) return null;
-    return { respond: null, outcome: !addressed ? 'rate-limited' : open ? 'looping' : 'trigger-off' };
+    if (live && looping) return { respond: null, outcome: 'looping' };
+    if (eligible || open) return null;
+    return { respond: null, outcome: addressed ? 'trigger-off' : 'rate-limited' };
   }
   if (addressed && !open) return { respond: null, outcome: 'trigger-off' };
   if (!addressed && !s.organic) return { respond: null, outcome: 'learned-only' };
