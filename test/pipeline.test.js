@@ -169,6 +169,21 @@ test('a reply that was sent but never acknowledged is recorded as posted, withou
   assert.equal(margins.replied.say({ reply_p: .9, detail: 'post-timeout', ms: { total: 10000 } }), 'answered in 10.0s, though the server never confirmed it (post-timeout).');
   assert.deepEqual(r.bot.context.filter(x => x.name === 'you').map(x => x.content), ['yo']);
 });
+test('a post the server answers with an error is a failed reply, and nothing remembers it as said', async () => {
+  const r = rig();
+  r.ws.send = function (raw) {
+    const f = JSON.parse(raw); this.sent.push(f);
+    if (f.method === 'history') queueMicrotask(() => this.emit({ id: f.id, result: { messages: [] } }));
+    if (f.method === 'message') queueMicrotask(() => this.emit({ id: f.id, error: { message: 'Guests can only read here' } }));
+  };
+  await r.say('hey @bot_me');
+  r.calls[0].answer(judged()); r.calls[1].answer(content('yo'));
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'post-Guests can only read here', 1]);
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'posted'), []);
+  assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
+  assert.deepEqual([r.bot.talk.get('general').turns, r.bot.answered.get('general')?.size ?? 0], [0, 0]);
+});
 test('losing the connection aborts every call in flight and the message is stale', async () => {
   const r = rig();
   await r.say('hey @bot_me');
