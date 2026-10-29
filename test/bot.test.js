@@ -558,3 +558,16 @@ test('who spoke when is forgotten after the windows it serves', async () => {
   await deliver(f, {}, 'hello');
   assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
 });
+test('a signed-in connection the network breaks is retried in seconds, a refused or switched one is not', async () => {
+  const sockets = [];
+  const bot = new Bot(env, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; }, retry: 5 });
+  bot.tick();
+  sockets[0].emit({ method: 'server', params: {} });
+  sockets[0].emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
+  sockets[0].close();
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(sockets.length, 2);
+  bot.drop('switched');
+  await new Promise(r => setTimeout(r, 20));
+  assert.equal(sockets.length, 2);
+});

@@ -7,8 +7,8 @@ import { schemas, fits } from './disk.js';
 const TTL = 300000;
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
-  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log() } = {}) {
-    this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log;
+  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000 } = {}) {
+    this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log; this.retry = retry;
     this.rooms = env.ROOMS.split(',').map(s => s.trim()).filter(Boolean);
     const saved = store.load();
     // Each section is checked as it loads: one that wouldn't pass the write check falls back to its default,
@@ -41,6 +41,8 @@ export class Bot {
     this.ws = null; this.ready = false; this.context = [];
     if (up) this.record('disconnected', { reason });
     ws.close();
+    // A signed-in socket that the network broke comes back in seconds, not at the next minute tick.
+    if (up && /^close-|^error$/.test(reason)) setTimeout(() => this.ws || this.connect(), this.retry).unref?.();
   }
   // Runs every minute: reconnects, pings, expires context, and checkpoints.
   tick() {
