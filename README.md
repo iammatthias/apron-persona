@@ -18,7 +18,7 @@ Optional: `ROOMS` (default `general`), `BOT_NAME`, `DAILY_CALLS` (default 40), `
 
 ## Speed
 
-A message runs as a pipeline under a 25 s deadline: the room history, the classifier and the reply start together when the bot is addressed, and the classifier's verdict gates only the post, so a decline aborts the draft. Each role asks an ordered chain of free models (`src/models.js`): a failed or empty answer moves to the next model at once, and one still unanswered after a few seconds is raced against the next. Every request sent counts against `DAILY_CALLS`, a hedge included, and a hedge is only sent while the budget has room. While a reply is drafted the bot shows as typing, on servers that relay activity. Each reply's stage times are kept in memory only, on the admin portal's margin and its "today" card.
+A message runs as a pipeline under a 25 s deadline: the room history, the classifier and the reply start together when the bot is addressed, and the classifier's verdict gates only the post, so a decline aborts the draft. Each role asks an ordered chain of free models (`src/models.js`) with the model's thinking turned off for the classifier and the reply, since hidden thinking was most of a free model's answer time: a failed or empty answer moves to the next model at once, and one still unanswered after a few seconds is raced against the next. Every request sent counts against `DAILY_CALLS`, a hedge included, and a hedge is only sent while the budget has room. While a reply is drafted the bot shows as typing, on servers that relay activity. Each reply's stage times are kept in memory only, on the admin portal's margin and its "today" card.
 
 ## Privacy
 

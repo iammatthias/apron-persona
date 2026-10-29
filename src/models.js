@@ -1,9 +1,12 @@
-// Each role the bot asks a model to play, with the models to try in order, how long one attempt may take, and how
-// long to wait before a second model is asked alongside the first (null: never). learn runs the history job's long reads.
+// Each role the bot asks a model to play, with the models to try in order, how long one attempt may take, how long to
+// wait before a second model is asked alongside the first (null: never), and OpenRouter's reasoning setting. Thinking
+// is never shown; for judge and compose it is off as well, since hidden thinking was most of a free model's answer
+// time (a 60-token classification billed as 460). learn, the history job's long reads, keeps it for quality.
+const quick = { enabled: false, exclude: true }, hidden = { exclude: true };
 export const roles = {
-  judge: { chain: ['cohere/north-mini-code:free', 'openrouter/free'], timeout: 8000, hedge: 2500 },
-  compose: { chain: ['cohere/north-mini-code:free', 'openrouter/free'], timeout: 10000, hedge: 3000 },
-  learn: { chain: ['openrouter/free'], timeout: 60000, hedge: null },
+  judge: { chain: ['cohere/north-mini-code:free', 'openrouter/free'], timeout: 8000, hedge: 2500, reasoning: quick },
+  compose: { chain: ['cohere/north-mini-code:free', 'openrouter/free'], timeout: 10000, hedge: 3000, reasoning: quick },
+  learn: { chain: ['openrouter/free'], timeout: 60000, hedge: null, reasoning: hidden },
 };
 // The table with the environment's overrides: DECISION_MODEL replaces the judge chain's first model, CHAT_MODEL the
 // compose and learn chains' first.
@@ -18,7 +21,7 @@ export const real = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: id
 // while afford() allows another request, and raced() is told so. The first answer wins and the rest are aborted.
 // Resolves { value, model }, where model is the one that answered (the router names the model it chose); rejects
 // with the last failure, or the signal's reason once it aborts.
-export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () => true, raced = () => {}, signal, timers = real }) {
+export function ask({ chain, timeout, hedge, reasoning }, body, parse, { send, afford = () => true, raced = () => {}, signal, timers = real }) {
   return new Promise((resolve, reject) => {
     const live = new Set();
     let next = 0, settled = false, pending, failure;
@@ -41,7 +44,7 @@ export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () 
       live.add(stop);
       // A chain's tail goes along as OpenRouter's own fallbacks, so a model it can't serve is skipped without a round trip.
       const rest = chain.slice(next - 1);
-      send({ ...body, model, ...rest.length > 1 ? { models: rest } : {} }, control.signal)
+      send({ ...body, model, ...rest.length > 1 ? { models: rest } : {}, reasoning }, control.signal)
         .then(data => ({ value: parse(data), model: typeof data?.model === 'string' ? data.model.slice(0, 100) : model }))
         .then(answer => { live.delete(stop); timers.clearTimeout(timer); finish(null, answer); }, e => {
           live.delete(stop); timers.clearTimeout(timer);

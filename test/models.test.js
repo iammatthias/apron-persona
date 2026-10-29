@@ -21,14 +21,14 @@ test('an environment model replaces the first of its chain and the router stays 
   assert.deepEqual(table({}), roles);
   assert.deepEqual(table({ DECISION_MODEL: 'x/y', CHAT_MODEL: 'openrouter/free' }).judge.chain, ['x/y', 'openrouter/free']);
   assert.deepEqual(table({ CHAT_MODEL: 'openrouter/free' }).compose.chain, ['openrouter/free']);
-  assert.deepEqual(table({ CHAT_MODEL: 'c' }).learn, { chain: ['c'], timeout: 60000, hedge: null });
-  assert.deepEqual(table({ CHAT_MODEL: 'c' }).compose, { chain: ['c', 'openrouter/free'], timeout: 10000, hedge: 3000 });
-  assert.deepEqual(table({ DECISION_MODEL: 'd' }).judge, { chain: ['d', 'openrouter/free'], timeout: 8000, hedge: 2500 });
+  assert.deepEqual(table({ CHAT_MODEL: 'c' }).learn, { chain: ['c'], timeout: 60000, hedge: null, reasoning: { exclude: true } });
+  assert.deepEqual(table({ CHAT_MODEL: 'c' }).compose, { chain: ['c', 'openrouter/free'], timeout: 10000, hedge: 3000, reasoning: { enabled: false, exclude: true } });
+  assert.deepEqual(table({ DECISION_MODEL: 'd' }).judge, { chain: ['d', 'openrouter/free'], timeout: 8000, hedge: 2500, reasoning: { enabled: false, exclude: true } });
 });
 test('the first model answers before the hedge delay: one request, its answer, no race', async () => {
   const b = bench();
   const p = b.run({ max_tokens: 5 });
-  assert.deepEqual(b.sent.map(r => r.body), [{ max_tokens: 5, model: 'cohere/north-mini-code:free', models: ['cohere/north-mini-code:free', 'openrouter/free'] }]);
+  assert.deepEqual(b.sent.map(r => r.body), [{ max_tokens: 5, model: 'cohere/north-mini-code:free', models: ['cohere/north-mini-code:free', 'openrouter/free'], reasoning: { enabled: false, exclude: true } }]);
   await b.timers.tick(2999);
   b.sent[0].resolve({ ...content(' hi '), model: 'cohere/north-mini-code' });
   assert.deepEqual(await p, { value: 'hi', model: 'cohere/north-mini-code' });
@@ -112,6 +112,7 @@ test('learn asks one model, once, and never hedges', async () => {
   await b.timers.tick(59999);
   assert.equal(b.sent.length, 1);
   assert.equal(b.sent[0].body.models, undefined);
+  assert.deepEqual(b.sent[0].body.reasoning, { exclude: true });
   b.sent[0].resolve(content('done'));
   assert.equal((await p).value, 'done');
 });
