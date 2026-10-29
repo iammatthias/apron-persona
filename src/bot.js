@@ -314,7 +314,8 @@ export class Bot {
   get name() { return this.you?.name ?? this.env.BOT_NAME; }
   traits() { return persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)); }
   status() {
-    const server = this.ready ? { host: new URL(this.env.APRON_URL).host, agent: this.server?.agent ?? null, user_id: this.self } : null;
+    const agent = typeof this.server?.agent === 'string' ? this.server.agent.replace(/\s+/g, ' ').trim().slice(0, 200) || null : null;
+    const server = this.ready ? { host: new URL(this.env.APRON_URL).host, agent, user_id: this.self } : null;
     return { connected: this.ready, paused: this.settings.paused, error: this.error, server, budget: this.budget, personality: this.traits() };
   }
 }

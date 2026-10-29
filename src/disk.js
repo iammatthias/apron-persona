@@ -40,7 +40,7 @@ const state = object({
 const status = object({
   connected: boolean, paused: boolean, error: nullable(string(/^[a-z0-9-]+$/, 64)),
   // user_id is the bot's own; agent is the server software's name from its greeting.
-  server: nullable(object({ host: string(/^[\w.-]+(:\d+)?$/, 253), agent: nullable(string(/^[^\n\r]*$/, 200)), user_id: string(/^[\w~.:-]+$/, 128) })),
+  server: nullable(object({ host: string(/^([\w.-]+|\[[0-9a-fA-F:.]+\])(:\d+)?$/, 253), agent: nullable(string(/^[^\n\r]*$/, 200)), user_id: string(/^[\w~.:-]+$/, 128) })),
   budget: state.fields.budget,
   personality: object(Object.fromEntries(axes.map(a => [a, number]))),
 });

@@ -477,3 +477,9 @@ test('a reply is written from the room history Apron holds, up to the message an
   await deliver(f);
   assert.equal(prompt.split('\n\n')[0], 'Ana: is the deploy done\nyou: it shipped an hour ago\nCarol: hey @bot_me');
 });
+test('status folds a server agent string to one bounded line', () => {
+  const { bot } = connected(model());
+  bot.server = { agent: 'weird\nagent\t' + 'x'.repeat(300) };
+  const agent = bot.status().server.agent;
+  assert.ok(!/\s{2}|\n|\t/.test(agent)); assert.equal(agent.length, 200); assert.ok(agent.startsWith('weird agent x'));
+});
