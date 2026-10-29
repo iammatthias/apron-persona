@@ -399,22 +399,29 @@ export class Bot {
     post();
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
-    const at = Date.now(), talk = this.talk.get(p.room_id);
-    ++talk.turns; talk.since = 0;
-    if (!organic) {
-      const answered = this.answered.get(p.room_id) ?? new Map();
-      answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);
-      for (const [id, when] of answered) if (at - when > 10 * 60000) answered.delete(id);
-    }
-    this.context.push({ room: p.room_id, at, name: 'you', content });
+    // What the room holds once the post has gone out: the bot spoke here, to this sender, and said this.
+    const spoke = () => {
+      const at = Date.now(), talk = this.talk.get(p.room_id);
+      ++talk.turns; talk.since = 0;
+      if (!organic) {
+        const answered = this.answered.get(p.room_id) ?? new Map();
+        answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);
+        for (const [id, when] of answered) if (at - when > 10 * 60000) answered.delete(id);
+      }
+      this.context.push({ room: p.room_id, at, name: 'you', content });
+    };
     const where = organic ? { organic: true } : { reply_to: p.message_id };
-    try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...where, text: content } }; }
-    catch (e) {
-      // call() sends before anything but a closed socket can fail it, so any other failure is a post the server never
-      // confirmed: it went out, and is recorded as posted without the id only the acknowledgement carries.
-      if (e.message === 'not-connected') return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` };
+    let ack;
+    try { ack = await sent; } catch (e) {
+      // call() sends before anything but a closed socket can fail it. A server error is a post turned away; any other
+      // failure is a post the server never confirmed: it went out, and is recorded as posted without the id only the
+      // acknowledgement carries.
+      if (e.refused || e.message === 'not-connected') return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` };
+      spoke();
       return { ...verdict, respond, ...scores, detail: `post-${e.message}`, posted: { ...where, text: content } };
     }
+    spoke();
+    return { ...verdict, respond, ...scores, posted: { message_id: ack?.message_id, ...where, text: content } };
   }
   // Shows the room that the bot is typing while a reply is drafted, where the server relays activity: on at once, again
   // every TYPING ms, and off when the draft ends. Returns what ends it; a second call does nothing.
