@@ -14,7 +14,7 @@ HASH_SECRET=...          # openssl rand -hex 32
 
 Then `ff-deploy apron-persona`. The admin portal (port 8903) has no login, so expose it only on the tailnet, at `apron-bot.iam.casa`. Its pages are now (what needs you, and each room at a glance), one per watched room (the transcript with the bot's reasoning beside every message, and the room's notes and norms), the bot (how it thinks, in the order it builds a reply, edited in place; the guardrails stay fixed) and plumbing. The server names the bot after its owner (`/invite-bot`). Port 8902 serves the status page.
 
-Optional: `ROOMS` (default `general`; a room the server refuses is left alone until the next sign-in, and the portal says so), `BOT_NAME`, `DAILY_CALLS` (no cap by default; set a whole number to cap calls a day), `DECISION_MODEL` and `CHAT_MODEL` (each replaces the first model of its chain in `src/models.js`).
+Optional: `ROOMS` (default `general`; a room the server refuses is left alone until the next sign-in, and the portal says so), `BOT_NAME`, `DAILY_CALLS` (no cap by default; a whole number caps the calls made a day, and anything else, a negative or fractional number included, means no cap), `DECISION_MODEL` and `CHAT_MODEL` (each replaces the first model of its chain in `src/models.js`).
 
 ## Speed
 
