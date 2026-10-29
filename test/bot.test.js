@@ -395,12 +395,12 @@ test('a chime-in posts a plain message, records it as posted, and keeps the text
   assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${f.ws.sent.at(-1).id}`, organic: true, text: 'the broth is the point' });
   assert.ok(f.bot.own.has(posted.message_id));
 });
-test('a room where one person does the talking gets a chime-in at most once per four of their messages', async () => {
-  // learn .5 keeps the sender eligible, so each message is sized up and only the chime-in rule decides.
+test('a busy room gets a chime-in at most once per four messages from others', async () => {
+  // Each message comes from someone new, so each is sized up and only the chime-in rule decides.
   const f = connected(model({ scores: { learn: .5, reply: .95, point: .95 } }));
   f.bot.configure({ organic: 'on' });
   const outcomes = [];
-  for (let i = 1; i <= 9; ++i) outcomes.push((await deliver(f, {}, `thought ${i}`))[0].outcome);
+  for (let i = 1; i <= 9; ++i) outcomes.push((await deliver(f, { from: { user_id: `u${i}` } }, `thought ${i}`))[0].outcome);
   assert.deepEqual(outcomes, ['chimed-in', 'spoke-last', 'spoke-last', 'spoke-last', 'chimed-in', 'spoke-last', 'spoke-last', 'spoke-last', 'chimed-in']);
   assert.equal(posts(f.ws).length, 3);
 });
@@ -732,4 +732,15 @@ test('a stream of declined mentions from one person rests the room instead of sp
   for (let i = 0; i < 10; i++) outcomes.push((await deliver(f, { from: { user_id: 'dave' } }, `hey @bot_me ${i}`))[0].outcome);
   assert.deepEqual(outcomes, [...Array(6).fill('declined'), ...Array(4).fill('looping')]);
   assert.equal(calls, 12);
+});
+test('an eligible sender is classified once per learning window even when nothing is learned', async () => {
+  let judged = 0;
+  const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++judged; return model({ scores: { learn: .2, reply: .1, point: .1 } })(url, init); });
+  for (const t of ['one', 'two', 'three']) await deliver(f, { from: { user_id: 'dave' } }, t);
+  assert.equal(judged, 1);
+});
+test('an empty owner from the server counts as no owner', () => {
+  const { bot } = fixture();
+  bot.self = 'bot_ana'; bot.you = { owner: '' };
+  assert.equal(bot.owner, 'ana');
 });

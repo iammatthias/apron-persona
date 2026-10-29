@@ -399,8 +399,10 @@ export class Bot {
     }
     if (connection !== this.ws) return { outcome: 'stale' };
     const learned = eligible && !unsized && result.learn >= .8;
+    // Any classification spends this sender's turn to be learned from, not only one that learned, so an eligible
+    // sender isn't judged on every message until one clears the learning bar.
+    if (eligible && !unsized) this.people.set(participant, now);
     if (learned) {
-      this.people.set(participant, now);
       learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
@@ -492,7 +494,7 @@ export class Bot {
   // from. Apron's /invite-bot makes a bot `bot_<owner's user_id>` and sends no owner field; the user_id stays when
   // the owner is renamed, so after a rename this names the old id.
   get owner() {
-    if (typeof this.you?.owner === 'string') return this.you.owner;
+    if (typeof this.you?.owner === 'string' && this.you.owner) return this.you.owner;
     return typeof this.self === 'string' && this.self.startsWith('bot_') && this.self.length > 4 ? this.self.slice(4) : undefined;
   }
   traits() { return persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)); }
