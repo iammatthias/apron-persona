@@ -567,7 +567,8 @@ test('a sender the bot has answered six times with nobody else speaking gets a r
   assert.deepEqual(outcomes, ['replied', 'replied', 'replied', 'replied', 'replied', 'replied', 'looping']);
   assert.deepEqual([posts(f.ws).length, calls], [6, 12]);
   const mine = f.bot.log.list().findLast(e => e.kind === 'posted').message_id;
-  assert.deepEqual(await replyTo(f, 'dave', 'hello?'), [{ room: 'general', message_id: 'this', reply_to: mine, from: 'dave', addressed: 'reply', outcome: 'looping' }]);
+  // Just answered, dave is conversing, which addressing() ranks with a mention.
+  assert.deepEqual(await replyTo(f, 'dave', 'hello?'), [{ room: 'general', message_id: 'this', reply_to: mine, from: 'dave', addressed: 'mention', outcome: 'looping' }]);
   assert.equal(calls, 12);
   assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'what did I miss'))[0].outcome, 'learned-only');
   assert.equal((await replyTo(f, 'dave', 'erin, nothing'))[0].outcome, 'replied');

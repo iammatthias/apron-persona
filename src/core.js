@@ -102,16 +102,26 @@ export function addressing(s, mention, reply) {
   return mention ? 'mention' : reply ? 'reply' : undefined;
 }
 const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
+// How many posts the bot makes to one sender, with nobody else speaking in the room, before it rests until someone
+// else does. Six answers in a row is a longer solo exchange than a regular holds in a public room before someone
+// else joins in, and it caps what a peer bot nobody flagged can draw: six answers, about twelve of forty daily
+// calls. The bot's owner is never counted (bot.js passes turns 0 for them).
+export const LOOP_TURNS = 6;
 // Whether the bot responds to one message, and the outcome with the bar that decided it. Before classification (no
 // reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
 // eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and waits for
-// someone else to speak when the bot's own message is the latest in the room (spokeLast). Nothing here is a matter of
-// time: someone talking to the bot is answered however recently it posted.
-export function trigger(s, { addressed, eligible, reply_p, point_p, spokeLast }) {
-  const open = !!addressed && s[gates[addressed]];
-  if (reply_p === undefined) return eligible || open ? null : { respond: null, outcome: addressed ? 'trigger-off' : 'rate-limited' };
+// someone else to speak when the bot's own message is the latest in the room (spokeLast). turns is how many posts the
+// bot has made to this sender since anyone else spoke here. Nothing here is a matter of time: someone talking to the
+// bot is answered however recently it posted.
+export function trigger(s, { addressed, eligible, reply_p, point_p, spokeLast, turns = 0 }) {
+  const open = !!addressed && s[gates[addressed]], looping = turns >= LOOP_TURNS;
+  if (reply_p === undefined) {
+    if (eligible || (open && !looping)) return null;
+    return { respond: null, outcome: !addressed ? 'rate-limited' : open ? 'looping' : 'trigger-off' };
+  }
   if (addressed && !open) return { respond: null, outcome: 'trigger-off' };
   if (!addressed && !s.organic) return { respond: null, outcome: 'learned-only' };
+  if (looping) return { respond: null, outcome: 'looping' };
   const need = addressed ? s.reply_threshold : s.organic_threshold;
   if (reply_p < need) return { respond: null, outcome: addressed ? 'declined' : 'held-back', need };
   if (!addressed && !(point_p >= need)) return { respond: null, outcome: 'nothing-to-add', need };

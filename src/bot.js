@@ -28,6 +28,8 @@ export class Bot {
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.spoke = new Set(); this.newest = new Map(); this.drafting = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
+    // Per room: who has been speaking since anyone else did (user), and how many posts the bot has made since (turns).
+    this.talk = new Map();
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
@@ -290,7 +292,12 @@ export class Bot {
     const eligible = !this.people.has(participant);
     // The bot spoke last here until this message; a chime-in waits for that.
     const spokeLast = this.spoke.delete(p.room_id);
-    const early = trigger(this.settings, { addressed, eligible });
+    // Someone else speaking starts a new run; the bot's owner is never rested.
+    const talk = this.talk.get(p.room_id) ?? { user: null, turns: 0 };
+    if (talk.user !== p.from.user_id) { talk.user = p.from.user_id; talk.turns = 0; }
+    this.talk.set(p.room_id, talk);
+    const turns = p.from.user_id === this.owner ? 0 : talk.turns;
+    const early = trigger(this.settings, { addressed, eligible, turns });
     if (early) return { outcome: early.outcome };
     if (addressed && !mine && pending?.has(p.from.user_id)) return { outcome: 'superseded' };
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
@@ -308,7 +315,7 @@ export class Bot {
     const slot = user => { if (user === p.from.user_id && !posting) run.abort(Error('superseded')); };
     this.drafting.set(p.room_id, slot);
     try {
-      const result = await this.pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
+      const result = await this.pipeline(p, { text, addressed, eligible, participant, spokeLast, turns, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
       return { ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} };
     } finally {
@@ -321,10 +328,10 @@ export class Bot {
   // The stages: context (the room's history), judge (the classifier) and compose (the reply) run together for a
   // message that addresses the bot, and the judge's verdict gates only the post, so a decline aborts the draft.
   // For any other message the judge decides first whether a reply is drafted at all.
-  async pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal, timed, asked, post }) {
+  async pipeline(p, { text, addressed, eligible, participant, spokeLast, turns, now, connection, signal, timed, asked, post }) {
     const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
-    // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot spoke last), nothing is read or drafted ahead.
-    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, spokeLast }).respond;
+    // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot spoke last or is resting), nothing is read or drafted ahead.
+    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, spokeLast, turns }).respond;
     const within = (budget, work) => {
       const c = new AbortController(), timer = this.timers.setTimeout(() => c.abort(Error('timeout')), budget), relay = () => c.abort(signal.reason);
       signal.addEventListener('abort', relay);
@@ -367,7 +374,7 @@ export class Bot {
     }
     // style is present only when the message was learned from.
     const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
-    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point, spokeLast });
+    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point, spokeLast, turns });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     compose ??= draft(organic);
@@ -380,6 +387,7 @@ export class Bot {
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
     const at = Date.now();
     this.spoke.add(p.room_id);
+    ++this.talk.get(p.room_id).turns;
     if (!organic) {
       const answered = this.answered.get(p.room_id) ?? new Map();
       answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);
@@ -435,6 +443,13 @@ export class Bot {
   }
   // The server names a bot after its owner; the environment's name stands in before sign-in.
   get name() { return this.you?.name ?? this.env.BOT_NAME; }
+  // The account the bot belongs to: what the auth result says, or failing that the account its user_id is made
+  // from. Apron's /invite-bot makes a bot `bot_<owner's user_id>` and sends no owner field; the user_id stays when
+  // the owner is renamed, so after a rename this names the old id.
+  get owner() {
+    if (typeof this.you?.owner === 'string') return this.you.owner;
+    return typeof this.self === 'string' && this.self.startsWith('bot_') && this.self.length > 4 ? this.self.slice(4) : undefined;
+  }
   traits() { return persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)); }
   status() {
     const agent = typeof this.server?.agent === 'string' ? this.server.agent.replace(/\s+/g, ' ').trim().slice(0, 200) || null : null;
