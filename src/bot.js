@@ -26,7 +26,7 @@ export class Bot {
     this.settings = restore(saved);
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.lastReply = 0; this.organic = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
+    this.bots = new Set(); this.own = new Set(); this.spoke = new Set(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
     this.seq = 0; this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
@@ -263,8 +263,9 @@ export class Bot {
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
     // One learning contribution per participant per five minutes.
     const eligible = !this.people.has(participant);
-    const clocks = { now, lastReply: this.lastReply, lastOrganic: this.organic.get(p.room_id) ?? 0 };
-    const early = trigger(this.settings, { addressed, eligible }, clocks);
+    // The bot spoke last here until this message; a chime-in waits for that.
+    const spokeLast = this.spoke.delete(p.room_id);
+    const early = trigger(this.settings, { addressed, eligible });
     if (early) return { outcome: early.outcome };
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
     const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
@@ -277,7 +278,7 @@ export class Bot {
     const stale = () => run.abort(Error('stale'));
     connection.addEventListener('close', stale); connection.addEventListener('error', stale);
     try {
-      const result = await this.pipeline(p, { text, addressed, eligible, participant, clocks, connection, signal: run.signal, timed, asked });
+      const result = await this.pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal: run.signal, timed, asked });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
       return { ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} };
     } finally {
@@ -289,10 +290,10 @@ export class Bot {
   // The stages: context (the room's history), judge (the classifier) and compose (the reply) run together for a
   // message that addresses the bot, and the judge's verdict gates only the post, so a decline aborts the draft.
   // For any other message the judge decides first whether a reply is drafted at all.
-  async pipeline(p, { text, addressed, eligible, participant, clocks, connection, signal, timed, asked }) {
+  async pipeline(p, { text, addressed, eligible, participant, spokeLast, now, connection, signal, timed, asked }) {
     const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
-    // Would the surest possible verdict post? If not (cooldown, trigger off, chime-in gap), nothing is read or drafted ahead.
-    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1 }, clocks).respond;
+    // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot spoke last), nothing is read or drafted ahead.
+    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, spokeLast }).respond;
     const within = (budget, work) => {
       const c = new AbortController(), timer = this.timers.setTimeout(() => c.abort(Error('timeout')), budget), relay = () => c.abort(signal.reason);
       signal.addEventListener('abort', relay);
@@ -329,12 +330,12 @@ export class Bot {
     if (connection !== this.ws) return { outcome: 'stale' };
     const learned = eligible && !unsized && result.learn >= .8;
     if (learned) {
-      this.people.set(participant, clocks.now);
-      learn(this.state, result.vector, result.learn, clocks.now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
+      this.people.set(participant, now);
+      learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
     const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
-    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point }, { ...clocks, lastReply: this.lastReply });
+    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point, spokeLast });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     compose ??= draft(organic);
@@ -344,14 +345,14 @@ export class Bot {
     const content = reply.slice(0, 1800);
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
-    this.lastReply = Date.now();
-    if (organic) this.organic.set(p.room_id, this.lastReply);
+    const at = Date.now();
+    this.spoke.add(p.room_id);
     if (!organic) {
       const answered = this.answered.get(p.room_id) ?? new Map();
-      answered.set(p.from.user_id, this.lastReply); this.answered.set(p.room_id, answered);
-      for (const [id, at] of answered) if (this.lastReply - at > 10 * 60000) answered.delete(id);
+      answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);
+      for (const [id, when] of answered) if (at - when > 10 * 60000) answered.delete(id);
     }
-    this.context.push({ room: p.room_id, at: this.lastReply, name: 'you', content });
+    this.context.push({ room: p.room_id, at, name: 'you', content });
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
     catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
   }

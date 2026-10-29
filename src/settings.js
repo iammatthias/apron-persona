@@ -37,10 +37,8 @@ export const settings = {
   reply_mentions: flag('answering mentions', true),
   reply_replies: flag('answering replies', true),
   reply_threshold: number('the reply bar', 0.5, 0.99, 0.7),
-  cooldown: number('the cooldown in seconds', 0, 3600, 15, true),
   organic: flag('chiming in', false),
   organic_threshold: number('the chime-in bar', 0.5, 0.99, 0.9),
-  organic_gap: number('the chime-in gap in minutes', 5, 1440, 30, true),
   norms: { default: () => ({}), parse: norms },
 };
 // Every save stores the persona, so an untouched bot carries a retired default; it moves to the current one.
@@ -48,8 +46,8 @@ const retired = new Set([
   'You are {name}, a conversational participant in a community chat. Be helpful and concise.',
   "You are {name}, a regular in this chat, not an assistant. Talk like the people here: short, usually lowercase, with opinions and jokes. Riff on what was just said. One word or one line is often enough. Never offer help, never greet anyone formally, never ask what you can help with, and never say you're an AI or an assistant.",
 ]);
-// Reads saved settings, including the legacy top-level `paused`, and drops the legacy `name`: the server names a bot.
-// An invalid value falls back to its default.
+// Reads saved settings, including the legacy top-level `paused`, and drops what is no longer a setting: the legacy
+// `name` (the server names a bot) and the retired `cooldown` and `organic_gap`. An invalid value falls back to its default.
 export function restore(saved) {
   const old = { ...saved.settings ?? { paused: saved.paused } };
   if (retired.has(old.persona)) delete old.persona;

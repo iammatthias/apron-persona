@@ -102,10 +102,12 @@ export function addressing(s, mention, reply) {
   return mention ? 'mention' : reply ? 'reply' : undefined;
 }
 const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
-// Whether the bot responds to one message, and the outcome with the bar, gap or wait that decided it. Before
-// classification (no reply_p) it returns null when the classifier must run, so organic adds no classifier calls:
-// only messages already eligible for learning are considered. A chime-in also needs something concrete to say (point_p).
-export function trigger(s, { addressed, eligible, reply_p, point_p }, { now, lastReply, lastOrganic }) {
+// Whether the bot responds to one message, and the outcome with the bar that decided it. Before classification (no
+// reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
+// eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and waits for
+// someone else to speak when the bot's own message is the latest in the room (spokeLast). Nothing here is a matter of
+// time: someone talking to the bot is answered however recently it posted.
+export function trigger(s, { addressed, eligible, reply_p, point_p, spokeLast }) {
   const open = !!addressed && s[gates[addressed]];
   if (reply_p === undefined) return eligible || open ? null : { respond: null, outcome: addressed ? 'trigger-off' : 'rate-limited' };
   if (addressed && !open) return { respond: null, outcome: 'trigger-off' };
@@ -113,7 +115,6 @@ export function trigger(s, { addressed, eligible, reply_p, point_p }, { now, las
   const need = addressed ? s.reply_threshold : s.organic_threshold;
   if (reply_p < need) return { respond: null, outcome: addressed ? 'declined' : 'held-back', need };
   if (!addressed && !(point_p >= need)) return { respond: null, outcome: 'nothing-to-add', need };
-  if (!addressed && now - lastOrganic < s.organic_gap * 60000) return { respond: null, outcome: 'quiet-gap', ago: now - lastOrganic };
-  if (now - lastReply < s.cooldown * 1000) return { respond: null, outcome: 'cooldown', wait: s.cooldown };
+  if (!addressed && spokeLast) return { respond: null, outcome: 'spoke-last' };
   return { respond: addressed ?? 'organic', outcome: addressed ? 'replied' : 'chimed-in' };
 }

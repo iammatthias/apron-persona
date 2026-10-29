@@ -71,9 +71,8 @@ label{display:block;font-size:12px;color:var(--muted)}
 .said details{margin-top:0}.said summary{padding:6px 0;border-top:1px solid var(--line)}
 .who{display:flex;align-items:center;gap:10px}.who img{width:28px;height:28px;border-radius:50%;flex:none}
 .tick{display:flex;align-items:center;gap:8px;color:var(--fg);font-size:13px;margin:0 0 8px;cursor:pointer}.tick input{width:auto;margin:0;accent-color:var(--fg)}
-.pair{display:grid;grid-template-columns:1fr 1fr;gap:10px}
 .sub{border-top:1px solid var(--line);padding-top:10px}.sub .small{margin:-4px 0 10px}
-.sub:has([type=checkbox][name=organic]:not(:checked)) :is(.pair,.small){opacity:.45}
+.sub:has([type=checkbox][name=organic]:not(:checked)) :is(label:not(.tick),.small){opacity:.45}
 .lesson{margin-top:12px}.lesson.bad{color:var(--bad)}
 .proposal{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.proposal>.small{margin-bottom:10px}.proposal textarea{min-height:10rem}
 .mem{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}.mem h3{font-size:12px;font-weight:600;margin:0 0 4px}.mem textarea{min-height:5rem}
@@ -217,10 +216,10 @@ function triggers(ctx) {
   const s = ctx.settings;
   return `<section id="respond"><h2>how I respond</h2><div class="card">${post(ctx, '/settings', `${check(s, 'reply_mentions', 'answer when mentioned')}
 ${check(s, 'reply_replies', 'answer replies to my messages')}
-<div class="pair">${number(s, 'reply_threshold', 'reply bar', 0.5, 0.99, 0.05)}${number(s, 'cooldown', 'cooldown, seconds', 0, 3600, 1)}</div>
+${number(s, 'reply_threshold', 'reply bar', 0.5, 0.99, 0.05)}
 <div class="sub">${check(s, 'organic', 'chime in unprompted')}
-<div class="pair">${number(s, 'organic_threshold', 'chime-in bar', 0.5, 0.99, 0.05)}${number(s, 'organic_gap', 'gap per room, min', 5, 1440, 1)}</div>
-<p class="small">only on messages I already read to learn from, and once per room per gap.</p></div>
+${number(s, 'organic_threshold', 'chime-in bar', 0.5, 0.99, 0.05)}
+<p class="small">only on messages I already read to learn from, and never twice in a row: I wait for someone else to speak first.</p></div>
 <div class="bar"><button class="save">save</button></div>`)}</div></section>`;
 }
 // At most 100 cells; past that each cell stands for several calls.

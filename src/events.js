@@ -4,13 +4,13 @@ export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
-  // addressed is 'mention' or 'reply'. need, ago and wait are the bar, the time since the last chime-in, and the cooldown that decided it.
+  // addressed is 'mention' or 'reply'. need is the bar that decided it.
   // ms is each stage's time in milliseconds and the total, via the model that answered each role, hedged the roles that raced two.
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'ago', 'wait', 'detail', 'ms', 'via', 'hedged'] },
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'detail', 'ms', 'via', 'hedged'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   // The new value of each changed setting except the persona and norms, whose text stays out of the log.
-  settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'cooldown', 'organic', 'organic_threshold', 'organic_gap'] },
+  settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'organic', 'organic_threshold'] },
   error: { label: 'Error', fields: ['code'] },
   // A history job's stage: reading, thinking, ready or failed. Never the history or the draft.
   learning: { label: 'Learning from history', fields: ['stage', 'host', 'rooms', 'count', 'failed', 'detail'] },
@@ -33,8 +33,7 @@ export const outcomes = {
   declined: 'Addressed; reply probability below the bar',
   'held-back': 'Not addressed; below the chime-in bar',
   'nothing-to-add': 'Not addressed; nothing specific to add',
-  'quiet-gap': 'Not addressed; chimed in here too recently',
-  cooldown: 'Posted too recently',
+  'spoke-last': 'Not addressed; the bot spoke last here',
   budget: 'Skipped: daily calls used up',
   'classify-failed': 'Classification failed',
   'reply-empty': 'The model returned no text',
@@ -73,8 +72,7 @@ export const margins = {
   declined: { place: 'room', tone: 'warn', say: e => `didn't answer. reply chance ${p2(e.reply_p)}, I need ${p2(e.need)}.` },
   'held-back': { place: 'room', say: e => `could have chimed in (${p2(e.reply_p)}), but I hold out for ${p2(e.need)}.` },
   'nothing-to-add': { place: 'room', say: e => `could have chimed in, but I had nothing specific to add (${p2(e.point_p)}).` },
-  'quiet-gap': { place: 'room', say: e => `would have chimed in, but I spoke up here ${e.ago < 60000 ? 'under a minute' : `${Math.round(e.ago / 60000)} min`} ago.` },
-  cooldown: { place: 'room', tone: 'warn', say: e => `${e.addressed ? "didn't answer" : 'would have chimed in'}. I'd posted under ${plural(e.wait, 'second')} before.` },
+  'spoke-last': { place: 'room', say: () => "I'd just said something here, so I let others talk." },
   budget: { place: 'room', tone: 'warn', say: () => "I'm out of calls for today, so I let it pass." },
   'classify-failed': { place: 'room', tone: 'bad', say: e => `I couldn't size it up. the model call failed (${e.detail}).` },
   'reply-empty': { place: 'room', tone: 'bad', say: () => 'the model returned nothing, so I stayed quiet.' },
@@ -90,10 +88,8 @@ const changes = {
   reply_mentions: toggled('you let me answer mentions', 'you stopped me answering mentions'),
   reply_replies: toggled('you let me answer replies to me', 'you stopped me answering replies to me'),
   reply_threshold: v => `you set my reply bar to ${p2(v)}`,
-  cooldown: v => `you set my cooldown to ${plural(v, 'second')}`,
   organic: toggled('you let me chime in on my own', 'you stopped me chiming in'),
   organic_threshold: v => `you set my chime-in bar to ${p2(v)}`,
-  organic_gap: v => `you set my chime-in gap to ${v} min`,
   norms: () => "you rewrote a room's norms",
 };
 // The dashed break each connection or owner event draws across every room's transcript.

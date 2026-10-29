@@ -162,20 +162,53 @@ test('a slow history read is given 3 s, then the bot answers from what it saw it
   await r.settle();
   assert.deepEqual([r.last().outcome, r.posts().at(-1).body.text], ['replied', 'from memory']);
 });
-test('nothing is read or drafted ahead for a mention the cooldown will refuse', async () => {
+test('nothing is read or drafted ahead for a mention its trigger will refuse, though the judge still learns from it', async () => {
   const r = rig();
+  r.bot.configure({ reply_mentions: 'off' });
   await r.say('hey @bot_me');
-  r.calls[0].answer(judged()); r.calls[1].answer(content('yo'));
+  assert.deepEqual([r.roles(), r.history(), r.typing()], [['judge'], 0, []]);
+  r.calls[0].answer(judged());
   await r.settle();
-  await r.say('again @bot_me');
-  assert.deepEqual([r.roles(), r.history(), r.typing()], [['judge', 'compose', 'judge'], 1, [8, 0]]);
-  r.calls[2].answer(judged());
+  assert.deepEqual([r.last().outcome, r.last().style, r.posts().length], ['trigger-off', [.5, .5, .5, .5], 0]);
+});
+test("the owner's sequence: answered, then answered again three seconds later, not told to wait", async () => {
+  const r = rig();
+  await r.say('whats up', { from: { user_id: 'matthias' } });
+  r.calls[0].answer(judged()); r.calls[1].answer(content('double whats up. you okay?'));
   await r.settle();
-  assert.deepEqual([r.last().outcome, r.last().wait, r.posts().length], ['cooldown', 15, 1]);
+  await r.timers.tick(3000);
+  await r.say('well you didnt answer', { from: { user_id: 'matthias' } });
+  assert.deepEqual(r.roles(), ['judge', 'compose', 'judge', 'compose']);
+  r.calls[2].answer(judged()); r.calls[3].answer(content('I did, look up'));
+  await r.settle();
+  assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), ['replied', 'replied']);
+  assert.deepEqual(r.posts().map(p => p.body.text), ['double whats up. you okay?', 'I did, look up']);
+});
+test('a chime-in waits while the bot spoke last, and goes ahead once someone else has spoken', async () => {
+  const r = rig();
+  r.bot.configure({ organic: 'on' });
+  r.crowd();
+  await r.say('anyone tried the new ramen place');
+  r.calls[0].answer(judged({ reply: .95, point: .95 }));
+  await r.timers.tick(0);
+  r.calls[1].answer(content('the broth is the point'));
+  await r.settle();
+  assert.equal(r.last().outcome, 'chimed-in');
+  await r.say('I have, it was fine');
+  assert.deepEqual([r.roles().length, r.history()], [3, 1]);
+  r.calls[2].answer(judged({ reply: .95, point: .95 }));
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.posts().length], ['spoke-last', 1]);
+  await r.say('the gyoza though');
+  r.calls[3].answer(judged({ reply: .95, point: .95 }));
+  await r.timers.tick(0);
+  r.calls[4].answer(content('gyoza carried it'));
+  await r.settle();
+  assert.deepEqual([r.last().outcome, r.posts().length], ['chimed-in', 2]);
 });
 test('a chime-in is judged first, and only a yes starts the draft and the typing notice', async () => {
   const r = rig();
-  r.bot.configure({ organic: 'on', cooldown: '0' });
+  r.bot.configure({ organic: 'on' });
   r.crowd();
   await r.say('anyone tried the new ramen place');
   assert.deepEqual([r.roles(), r.history(), r.typing()], [['judge'], 1, []]);

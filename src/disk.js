@@ -26,7 +26,7 @@ const state = object({
   budget: object({ day: v => v === '' || date(v), calls: count }),
   settings: object({
     persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
-    cooldown: count, organic: boolean, organic_threshold: number, organic_gap: count, norms: map(room, owner(1000)),
+    organic: boolean, organic_threshold: number, norms: map(room, owner(1000)),
   }),
   memory: object({
     rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })),

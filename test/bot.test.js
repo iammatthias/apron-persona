@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { socket } from './fakes.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
-const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, cooldown: 15, organic: false, organic_threshold: .9, organic_gap: 30, norms: {} };
+const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {} };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
@@ -147,7 +147,7 @@ test('a saved persona persists, and a reply sees the room as one named transcrip
     const body = JSON.parse(init.body); bodies.push(body);
     return Response.json(body.temperature === 0 ? classified : { choices: [{ message: { content: 'Persona: "arr"' } }] });
   });
-  bot.configure({ persona: 'You are {name}, a pirate.', cooldown: '0' });
+  bot.configure({ persona: 'You are {name}, a pirate.' });
   assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, a pirate.');
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '11', from: { user_id: 'u_ana', name: 'Ana\nB' }, body: { text: 'ship ahoy' } } });
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '12', from: { user_id: 'carol' }, body: { text: 'hey @bot_me' } } });
@@ -199,7 +199,7 @@ test('a frame before sign-in is stale, and a fifth queued frame is busy', async 
   for (const n of [1, 2, 3, 4, 5]) g.ws.emit({ method: 'message', params: { room_id: 'general', message_id: `q${n}`, from: { user_id: `u${n}` }, body: { text: `hey @bot_me ${n}` } } });
   assert.deepEqual(g.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['q5', 'busy']]);
   release(); await g.bot.queue;
-  assert.deepEqual(g.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['q5', 'busy'], ['q1', 'replied'], ['q2', 'cooldown'], ['q3', 'cooldown'], ['q4', 'cooldown']]);
+  assert.deepEqual(g.bot.log.list().filter(e => e.kind === 'message').map(e => [e.message_id, e.outcome]), [['q5', 'busy'], ['q1', 'replied'], ['q2', 'replied'], ['q3', 'replied'], ['q4', 'replied']]);
 });
 test('duplicates and a sender already counted are skipped before any call', async () => {
   let calls = 0;
@@ -221,11 +221,11 @@ test('a message event names its sender, and a pong times the ping', async () => 
   f.ws.emit({ method: 'pong' });
   assert.ok(f.bot.details().latency >= 40 && f.bot.details().latency < 1000);
 });
-test('a mention can be declined, cooled down, or out of budget', async () => {
+test('a mention can be declined or out of budget, and a second one right after the first is answered too', async () => {
   assert.deepEqual(await deliver(connected(model({ scores: { reply: .4 } }))), seen('declined', { learn_p: .9, reply_p: .4, point_p: .9, style: flat, need: .7 }));
   const f = connected(model());
   assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
-  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'again @bot_me'), [{ ...seen('cooldown', { learn_p: .9, reply_p: .9, point_p: .9, style: flat, wait: 15 })[0], from: 'dave' }]);
+  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'again @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'dave' }]);
   const g = connected(model());
   g.bot.budget = { day: new Date().toISOString().slice(0, 10), calls: 40 };
   assert.deepEqual(await deliver(g), seen('budget'));
@@ -277,9 +277,9 @@ test('nothing written to DATA_DIR carries anything on the never-store list', asy
     const f = { bot, ws };
     bot.heard.set('general', new Map([['zed', Date.now()]]));
     bot.tick(); ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
-    bot.configure({ organic: 'on', cooldown: '0' });
+    bot.configure({ organic: 'on' });
     assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'chime-canary'))[0].outcome, 'chimed-in');
-    assert.equal((await deliver(f, { from: { user_id: 'u_other', name: 'Canary Name' } }, 'quiet-canary'))[0].outcome, 'quiet-gap');
+    assert.equal((await deliver(f, { from: { user_id: 'u_other', name: 'Canary Name' } }, 'quiet-canary'))[0].outcome, 'spoke-last');
     assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'engaged-canary @bot_me'))[0].outcome, 'replied');
     bot.save(); write('status.json', bot.status());
     assert.deepEqual(posts(ws).map(m => m.body.text), ['model-canary', 'model-canary']);
@@ -356,22 +356,22 @@ test('a mention or a reply whose trigger is off is let be, without a classifier 
   const g = connected(model());
   assert.deepEqual(await deliver(g), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
   const mine = g.bot.log.list().find(e => e.kind === 'posted').message_id;
-  g.bot.configure({ reply_replies: false, cooldown: '0' });
+  g.bot.configure({ reply_replies: false });
   assert.deepEqual(await deliver(g, { from: { user_id: 'dave' }, reply_to: { message_id: mine } }, 'meaning what'), [{ ...seen('trigger-off', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'dave' }]);
   assert.deepEqual(await deliver(g, { from: { user_id: 'erin' }, reply_to: { message_id: mine } }, 'meaning what @bot_me'), [{ ...seen('replied', { reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'erin' }]);
   g.bot.configure({ reply_replies: true, reply_mentions: false });
   assert.deepEqual(await deliver(g, { from: { user_id: 'finn' }, reply_to: { message_id: mine } }, 'and @bot_me'), [{ ...seen('replied', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'finn' }]);
   assert.equal(posts(g.ws).length, 3);
 });
-test('the reply bar and the cooldown follow the settings', async () => {
+test('the reply bar follows the settings, and the clock never gates a mention', async () => {
   const f = connected(model({ scores: { reply: .74 } }));
   f.bot.configure({ reply_threshold: '0.75' });
   assert.deepEqual(await deliver(f), seen('declined', { learn_p: .9, reply_p: .74, point_p: .9, style: flat, need: .75 }));
-  f.bot.configure({ reply_threshold: '0.70', cooldown: '0' });
-  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'one @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .74, point_p: .9, style: flat })[0], from: 'dave' }]);
-  assert.deepEqual(await deliver(f, { from: { user_id: 'erin' } }, 'two @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .74, point_p: .9, style: flat })[0], from: 'erin' }]);
-  f.bot.configure({ cooldown: '60' });
-  assert.deepEqual(await deliver(f, { from: { user_id: 'finn' } }, 'three @bot_me'), [{ ...seen('cooldown', { learn_p: .9, reply_p: .74, point_p: .9, style: flat, wait: 60 })[0], from: 'finn' }]);
+  f.bot.configure({ reply_threshold: '0.70' });
+  for (const [user_id, text] of [['dave', 'one @bot_me'], ['erin', 'two @bot_me'], ['finn', 'three @bot_me']])
+    assert.deepEqual(await deliver(f, { from: { user_id } }, text), [{ ...seen('replied', { learn_p: .9, reply_p: .74, point_p: .9, style: flat })[0], from: user_id }]);
+  assert.equal(posts(f.ws).length, 3);
+  assert.throws(() => f.bot.configure({ cooldown: '60' }), { message: 'unknown setting cooldown' });
 });
 const unaddressed = (outcome, extra) => seen(outcome, { addressed: undefined, learn_p: .9, ...extra });
 test('a chime-in posts a plain message, records it as posted, and keeps the text it answered', async () => {
@@ -400,13 +400,14 @@ test('organic is held back below its bar, quiet within its gap, and costs no ext
   assert.deepEqual(await count('off'), { calls: 3, outcomes: ['learned-only', 'rate-limited', 'learned-only', 'rate-limited', 'learned-only'], text: false });
   assert.deepEqual(await count('on'), { calls: 3, outcomes: ['held-back', 'rate-limited', 'held-back', 'rate-limited', 'held-back'], text: false });
   const f = connected(model({ scores: { reply: .95 } }));
-  f.bot.configure({ organic: 'on', cooldown: '0' });
+  f.bot.configure({ organic: 'on' });
   assert.equal((await deliver(f, {}, 'first'))[0].outcome, 'chimed-in');
   const [quiet] = await deliver(f, { from: { user_id: 'dave' } }, 'second');
-  assert.equal(quiet.outcome, 'quiet-gap');
-  assert.ok(quiet.ago >= 0 && quiet.ago < 1000);
+  assert.equal(quiet.outcome, 'spoke-last');
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
   assert.equal(posts(f.ws).length, 1);
+  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'third'))[0].outcome, 'chimed-in');
+  assert.equal(posts(f.ws).length, 2);
 });
 test('a welcome chime-in with nothing specific to add stays quiet and keeps no text', async () => {
   const f = connected(model({ scores: { reply: .95, point: .42 } }));
@@ -420,7 +421,7 @@ test('the room memory counts only messages it classified, by day and topic, with
   let calls = 0;
   const answer = model({ scores: { reply: .95, point: .95, topic: 'deploys', warmth: 'high' } });
   const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++calls; return answer(url, init); });
-  f.bot.configure({ organic: 'on', cooldown: '0' });
+  f.bot.configure({ organic: 'on' });
   const outcomes = [];
   for (const [params, text] of [[{}, 'did it ship'], [{}, 'did it ship'], [{}, 'anyone?'], [{ from: { user_id: 'dave' } }, 'deploy @bot_me'], [{ room_id: 'random' }, 'elsewhere'], [{ from: { user_id: 'bot_other' } }, 'beep']])
     outcomes.push((await deliver(f, params, text))[0].outcome);
@@ -457,7 +458,7 @@ test('a reply carries its room notes in the system prompt, before the guardrails
 });
 test('saving settings records only the values that changed', () => {
   const { bot } = connected();
-  bot.configure({ reply_mentions: 'on', reply_replies: 'on', reply_threshold: '0.7', cooldown: '15', organic: 'on', organic_threshold: '0.95', organic_gap: '30' });
+  bot.configure({ reply_mentions: 'on', reply_replies: 'on', reply_threshold: '0.7', organic: 'on', organic_threshold: '0.95' });
   bot.configure({ organic: 'on' });
   assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['organic', 'organic_threshold'], organic: true, organic_threshold: .95 }]);
 });
@@ -516,6 +517,13 @@ test('a state.json section that would not pass the write check loads as its defa
   assert.deepEqual(bot.budget, { day: '', calls: 0 });
   assert.deepEqual(Object.keys(bot.memory.rooms.general.days), [today]);
   assert.deepEqual(bot.memory.rooms.general.weeks, {});
+});
+test('a state.json from before the clock guards went loads without them and saves cleanly', () => {
+  const personality = { version: 1, at: 0, cells: {} };
+  const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, settings: { ...defaults, cooldown: 15, organic_gap: 30, organic: true }, memory: { rooms: {}, pages: {} } }));
+  assert.deepEqual(bot.settings, { ...defaults, organic: true });
+  bot.save();
+  assert.deepEqual(JSON.parse(saved[0]).settings, { ...defaults, organic: true });
 });
 test('a refused state write is recorded and the bot carries on', () => {
   const { bot } = fixture();

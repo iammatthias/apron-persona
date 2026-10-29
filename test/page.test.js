@@ -101,9 +101,10 @@ test('how I respond shows each trigger as saved, and the header names chiming in
   const html = dashboard({ ...ctx, view: 'who' });
   assert.ok(html.includes('<section id="respond"><h2>how I respond</h2><div class="card"><form method="post" action="/settings"><input type="hidden" name="view" value="who"><input type="hidden" name="room" value="general">'));
   assert.ok(html.includes('<label class="tick"><input type="checkbox" name="reply_mentions" value="on" checked><input type="hidden" name="reply_mentions" value="off">answer when mentioned</label>'));
-  assert.ok(html.includes('<label>reply bar<input type="number" name="reply_threshold" min="0.5" max="0.99" step="0.05" value="0.70" required></label><label>cooldown, seconds<input type="number" name="cooldown" min="0" max="3600" step="1" value="15" required></label>'));
+  assert.ok(html.includes('<label>reply bar<input type="number" name="reply_threshold" min="0.5" max="0.99" step="0.05" value="0.70" required></label>'));
+  assert.ok(!html.includes('cooldown') && !html.includes('organic_gap'));
   assert.ok(html.includes('<label class="tick"><input type="checkbox" name="organic" value="on"><input type="hidden" name="organic" value="off">chime in unprompted</label>'));
-  assert.ok(html.includes('value="0.90" required></label><label>gap per room, min<input type="number" name="organic_gap" min="5" max="1440" step="1" value="30" required></label>'));
+  assert.ok(html.includes('<label>chime-in bar<input type="number" name="organic_threshold" min="0.5" max="0.99" step="0.05" value="0.90" required></label>\n<p class="small">only on messages I already read to learn from, and never twice in a row: I wait for someone else to speak first.</p>'));
   assert.ok(html.indexOf('id="who"') < html.indexOf('id="respond"') && html.indexOf('id="respond"') < html.indexOf('id="today"'));
   assert.ok(html.includes("<p>I'm listening in #general and #random on h. 3 of my 40 calls are spent today.</p>"));
   const loose = dashboard({ ...ctx, settings: { ...ctx.settings, reply_replies: false, organic: true, organic_threshold: .95 } });

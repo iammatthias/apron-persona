@@ -13,7 +13,6 @@ const events = [
   msg(7, 'rate-limited'),
   msg(8, 'duplicate'),
   msg(9, 'declined', { name: 'ana', addressed: 'mention', text: '@bot summarize?', learn_p: .2, reply_p: .42, need: .75 }),
-  msg(10, 'cooldown', { addressed: 'mention', text: 'again @bot', learn_p: .9, reply_p: .9, wait: 15 }),
   msg(11, 'budget', { addressed: 'mention', text: '@bot hi' }),
   msg(12, 'classify-failed', { addressed: 'mention', text: '@bot one', detail: 'inference-500' }),
   msg(13, 'reply-empty', { addressed: 'mention', text: '@bot two', learn_p: .9, reply_p: .9 }),
@@ -36,10 +35,8 @@ const events = [
   msg(30, 'held-back', { learn_p: .9, reply_p: .71, style: [.5, .5, .5, .5], need: .9 }),
   msg(31, 'chimed-in', { text: 'anyone tried the new ramen place', learn_p: .9, reply_p: .93 }),
   { at: 32, kind: 'posted', room: 'general', message_id: 'p32', organic: true, text: 'the broth is the whole point' },
-  msg(33, 'quiet-gap', { learn_p: .9, reply_p: .95, ago: 720000 }),
-  msg(34, 'quiet-gap', { learn_p: .9, reply_p: .95, ago: 20000 }),
-  msg(35, 'cooldown', { learn_p: .9, reply_p: .95, wait: 1 }),
-  { at: 36, kind: 'settings', keys: ['organic', 'reply_threshold', 'cooldown', 'organic_gap', 'reply_mentions', 'reply_replies', 'organic_threshold'], organic: true, reply_threshold: .75, cooldown: 30, organic_gap: 60, reply_mentions: false, reply_replies: true, organic_threshold: .95 },
+  msg(33, 'spoke-last', { learn_p: .9, reply_p: .95, point_p: .95 }),
+  { at: 36, kind: 'settings', keys: ['organic', 'reply_threshold', 'reply_mentions', 'reply_replies', 'organic_threshold'], organic: true, reply_threshold: .75, reply_mentions: false, reply_replies: true, organic_threshold: .95 },
   { at: 37, kind: 'settings', keys: ['organic', 'reply_mentions', 'reply_replies'], organic: false, reply_mentions: true, reply_replies: false },
 ];
 const quiet = (at, who, margin, tone) => ({ kind: 'message', at, message_id: `m${at}`, who, text: undefined, tone, unanswered: false, margin });
@@ -54,7 +51,6 @@ test('the view model turns events into each room\'s rows with a margin per outco
     quiet(7, 'ben', 'already learned from ben in the last 5 min.'),
     quiet(8, 'ben', "I'd seen this exact text already."),
     said(9, 'ana', '@bot summarize?', "didn't answer. reply chance 0.42, I need 0.75.", 'warn'),
-    said(10, 'ben', 'again @bot', "didn't answer. I'd posted under 15 seconds before.", 'warn'),
     said(11, 'ben', '@bot hi', "I'm out of calls for today, so I let it pass.", 'warn'),
     said(12, 'ben', '@bot one', "I couldn't size it up. the model call failed (inference-500).", 'bad'),
     said(13, 'ben', '@bot two', 'the model returned nothing, so I stayed quiet.', 'bad'),
@@ -74,15 +70,13 @@ test('the view model turns events into each room\'s rows with a margin per outco
     quiet(30, 'ben', 'could have chimed in (0.71), but I hold out for 0.90.'),
     { ...said(31, 'ben', 'anyone tried the new ramen place', "chimed in unprompted. I was 0.93 sure it'd be welcome.", 'ok'), unanswered: false },
     { kind: 'post', at: 32, room: 'general', message_id: 'p32', text: 'the broth is the whole point', deleted: false, margin: 'something I chimed in with.' },
-    quiet(33, 'ben', 'would have chimed in, but I spoke up here 12 min ago.'),
-    quiet(34, 'ben', 'would have chimed in, but I spoke up here under a minute ago.'),
-    quiet(35, 'ben', "would have chimed in. I'd posted under 1 second before.", 'warn'),
-    { kind: 'break', at: 36, text: 'you let me chime in on my own, you set my reply bar to 0.75, you set my cooldown to 30 seconds, you set my chime-in gap to 60 min, you stopped me answering mentions, you let me answer replies to me, you set my chime-in bar to 0.95' },
+    quiet(33, 'ben', "I'd just said something here, so I let others talk."),
+    { kind: 'break', at: 36, text: 'you let me chime in on my own, you set my reply bar to 0.75, you stopped me answering mentions, you let me answer replies to me, you set my chime-in bar to 0.95' },
     { kind: 'break', at: 37, text: 'you stopped me chiming in, you let me answer mentions, you stopped me answering replies to me' },
   ];
   const breaksOnly = rows.filter(r => r.kind === 'break');
   assert.deepEqual(transcript(events, ['general', 'quiet']), {
-    rooms: [{ id: 'general', rows, unanswered: 9 }, { id: 'quiet', rows: breaksOnly, unanswered: 0 }],
+    rooms: [{ id: 'general', rows, unanswered: 8 }, { id: 'quiet', rows: breaksOnly, unanswered: 0 }],
     elsewhere: [
       { ...quiet(21, 'ben', 'not a room I watch.'), room: 'random' },
       { kind: 'message', at: 22, message_id: 'm22', who: 'Room notice', text: 'hello @bot', tone: undefined, unanswered: false, margin: 'from a bot or a notice, so I let it be.', room: 'general' },
@@ -107,8 +101,8 @@ test('a post deleted later loses its delete, and a message that did not engage t
 test('today counts replies, unanswered mentions and things learned since midnight UTC', () => {
   const day = Date.UTC(2026, 9, 28), at = n => day + n;
   const shifted = [{ ...events[1], at: day - 1 }, ...events.slice(2).map(e => ({ ...e, at: at(e.at) }))];
-  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 9, learned: 2, speed: null });
-  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 9, learned: 2, speed: null });
+  assert.deepEqual(today(shifted, at(100)), { since: day, replies: 3, unanswered: 8, learned: 2, speed: null });
+  assert.deepEqual(today(shifted.slice(2), at(100)), { since: at(4), replies: 2, unanswered: 8, learned: 2, speed: null });
   assert.deepEqual(today([], at(100)), { since: at(100), replies: 0, unanswered: 0, learned: 0, speed: null });
 });
 test('a reply with spans says how long it took, carries the breakdown as a tooltip, and feeds the day\'s median and p90', () => {
