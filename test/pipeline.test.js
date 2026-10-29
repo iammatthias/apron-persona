@@ -2,6 +2,9 @@ import { test, afterAll } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { clock, lab, socket } from './fakes.js';
+import { snapshot } from '../src/http.js';
+import { bot as thinking } from '../src/views.js';
+import { cue } from '../src/settings.js';
 // A rejection nobody handled anywhere in the suite fails it: a lost race or an aborted draft must never surface as one.
 const unhandled = [];
 process.on('unhandledRejection', e => unhandled.push(e));
@@ -330,4 +333,17 @@ test('the typing notice is renewed every 6 s while drafting, and never sent to a
   plain.calls[0].answer(judged()); plain.calls[1].answer(content('yo'));
   await plain.settle();
   assert.deepEqual([plain.last().outcome, plain.typing()], ['replied', []]);
+});
+test('how I think shows each prompt part exactly as the bot sends it', async () => {
+  const r = rig();
+  r.bot.configure({ persona: 'You are {name}, <odd> & short.', norms: { general: 'no spoilers' } });
+  await r.say('hey @bot_me');
+  const [system, user] = r.sent('compose')[0].body.messages;
+  r.calls[0].answer(judged({ learn: .1 })); r.calls[1].answer(content('yo'));
+  await r.settle();
+  const sections = thinking(await snapshot(r.bot), 'general').sections, sent = id => sections.find(x => x.id === id).sent;
+  assert.equal(system.content, ['persona', 'traits', 'room', 'rules'].map(sent).join(' '));
+  assert.equal(sent('persona'), 'You are Persona, <odd> & short.');
+  assert.equal(sent('room'), 'Norms: no spoilers');
+  assert.deepEqual([user.content, sent('lines')].map(x => x.split('\n\n')[1]), [cue, cue]);
 });

@@ -92,9 +92,13 @@ export function now(s) {
   const p = s.status.personality;
   return { needs: needs(s), cards, bot: { persona: promptParts(s.settings, p, s.name)[0], personality: p, drift: drift(p), triggers: triggers(s.settings) } };
 }
+const rowsOf = (s, id) => transcript(s.events, s.rooms).rooms.find(r => r.id === id).rows;
+// A room's rows after `at`, folded, as the live page asks for them; or just the post with message_id.
+export const after = (s, id, at) => fold(rowsOf(s, id).filter(r => r.at > at));
+export const posted = (s, id, message_id) => rowsOf(s, id).filter(r => r.kind === 'post' && r.message_id === message_id);
 // One room: its transcript with quiet runs folded, what the bot believes about it, its norms and the bot's posts there.
 export function room(s, id) {
-  const m = memo(s, id), rows = transcript(s.events, s.rooms).rooms.find(r => r.id === id).rows;
+  const m = memo(s, id), rows = rowsOf(s, id);
   const posts = s.posts.error ? { error: s.posts.error, list: [] } : { error: null, list: s.posts.filter(p => p.room_id === id).map(p => ({ message_id: p.message_id, at: Number(p.log_id), text: p.body.text })) };
   return { id, rows: fold(rows), notes: m.notes, week: m.week, norms: s.settings.norms[id] ?? '', posts };
 }

@@ -1,5 +1,6 @@
 import { page } from './page.js';
-import { dashboard, row, rows, roomOf, viewOf } from './dashboard.js';
+import { dashboard, row, views, roomOf, viewOf } from './dashboard.js';
+import { after, posted } from './views.js';
 import { settings } from './settings.js';
 import { week, dayOf } from './memory.js';
 // Never framed, so a hostile page can't overlay the admin forms and trick a click.
@@ -39,6 +40,16 @@ function stream(log, signal, every) {
     },
     cancel() { stop(); },
   }, new CountQueuingStrategy({ highWaterMark: 32 }));
+}
+// One snapshot of the bot for the dashboard's view models; posts reads the bot's live posts from Apron.
+export async function snapshot(bot, { posts = false } = {}) {
+  const now = Date.now(), today = dayOf(now);
+  return {
+    name: bot.name, now, rooms: bot.rooms, events: bot.log.list(), status: bot.status(), spent: bot.spent, limit: bot.env.DAILY_CALLS,
+    settings: bot.settings, details: bot.details(), lastError: bot.lastError, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null,
+    memory: bot.rooms.map(id => ({ id, notes: bot.notes(id), week: week(bot.memory, id, today) })),
+    posts: posts ? await bot.posts().catch(e => ({ error: e.message })) : [],
+  };
 }
 // The admin dashboard. Writes require a same-origin form post, and each reports its outcome on the view and room it came from.
 // saveApron(url, token) persists a new server and token; ping is the event stream's keepalive interval.
@@ -95,17 +106,14 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       server?.timeout(req, 0);
       return new Response(stream(bot.log, req.signal, ping), { headers: { 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-store' } });
     }
-    const q = url.searchParams, ctx = { ...place(q), events: bot.log.list(), rooms: bot.rooms };
+    const q = url.searchParams, at = place(q);
     if (req.method === 'GET' && url.pathname === '/rows') {
-      const all = rows(ctx), since = Number(q.get('since')) || 0;
-      const shown = q.has('id') ? all.filter(r => r.kind === 'post' && r.message_id === q.get('id')) : all.filter(r => r.at > since);
-      return html(shown.map(r => row(r, ctx)).join(''));
+      const s = await snapshot(bot), shown = q.has('id') ? posted(s, at.room, q.get('id')) : after(s, at.room, Number(q.get('since')) || 0);
+      return html(shown.map(r => row(r, { ...at, view: 'room' })).join(''));
     }
     if (req.method === 'GET' && url.pathname === '/') {
-      const posts = await bot.posts().catch(e => ({ error: e.message }));
-      const memory = bot.rooms.map(id => ({ id, notes: bot.notes(id), week: week(bot.memory, id, dayOf(Date.now())) }));
       const flash = q.get('error') ? { error: q.get('error') } : q.get('ok') ? { ok: q.get('ok') } : null;
-      return html(dashboard({ ...ctx, edit: q.has('edit'), name: bot.name, status: bot.status(), lastError: bot.lastError, settings: bot.settings, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null, limit: bot.env.DAILY_CALLS, details: bot.details(), posts, flash, memory }));
+      return html(dashboard(await snapshot(bot, { posts: !!views[at.view].posts }), at, flash));
     }
     if (req.method === 'POST' && action) {
       if (req.headers.get('Sec-Fetch-Site') !== 'same-origin') return new Response('Forbidden', { status: 403 });
