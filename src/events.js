@@ -5,7 +5,8 @@ export const kinds = {
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
   // addressed is 'mention' or 'reply'. need, ago and wait are the bar, the time since the last chime-in, and the cooldown that decided it.
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'ago', 'wait', 'detail'] },
+  // ms is each stage's time in milliseconds and the total, via the model that answered each role, hedged the roles that raced two.
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'ago', 'wait', 'detail', 'ms', 'via', 'hedged'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   // The new value of each changed setting except the persona and norms, whose text stays out of the log.
@@ -41,7 +42,10 @@ export const outcomes = {
   replied: 'Replied',
   'chimed-in': 'Chimed in unprompted',
 };
+// A message's stages, in order, as its ms field names them.
+export const stages = ['context', 'judge', 'compose', 'post'];
 const p2 = x => Number(x).toFixed(2);
+export const secs = ms => `${(ms / 1000).toFixed(1)}s`;
 const plural = (n, one) => `${n} ${n === 1 ? one : `${one}s`}`;
 const who = e => e.name ?? e.from ?? 'someone';
 // The axis a learned style vector leans furthest along, as words.

@@ -8,23 +8,9 @@ import { tally } from '../src/memory.js';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { socket } from './fakes.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
-// A fake Apron connection that records sent frames and acknowledges each new post; `emit` delivers server frames.
-function socket() {
-  const listeners = {}, sent = [];
-  return {
-    sent, readyState: 1,
-    addEventListener(type, f) { (listeners[type] ??= []).push(f); },
-    emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
-    close() { this.readyState = 3; listeners.close?.forEach(f => f({ type: 'close', code: 1006, reason: '' })); },
-    send(raw) {
-      const frame = JSON.parse(raw); sent.push(frame);
-      if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
-      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit({ id: frame.id, result: { messages: this.history ?? [] } }));
-    },
-  };
-}
 const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, cooldown: 15, organic: false, organic_threshold: .9, organic_gap: 30, norms: {} };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
@@ -34,8 +20,8 @@ function fixture(request, load = () => ({})) {
   return { bot, ws, saved };
 }
 test('transcript stays in memory and persists only aggregate weights', async () => {
-  const { bot, saved } = fixture();
-  bot.self = 'bot_me'; bot.ws = {}; bot.ready = true;
+  const { bot, ws, saved } = fixture();
+  bot.self = 'bot_me'; bot.ws = ws; bot.ready = true;
   let calls = 0; bot.api = async () => { ++calls; return classified; };
   const p = { room_id: 'general', message_id: '42', from: { user_id: 'alice' }, body: { text: 'private-content-canary' } };
   await bot.handle(p); await bot.handle(p); bot.save();
@@ -182,13 +168,13 @@ const model = ({ scores = { learn: .9, reply: .9 }, classify, text = 'hi there',
   return replyStatus === 200 ? Response.json({ choices: [{ message: { content: text } }] }) : new Response('', { status: replyStatus });
 };
 let ids = 100;
-// Delivers one message frame and returns the message events it recorded, without their times.
+// Delivers one message frame and returns the message events it recorded, without their times, text or spans.
 async function deliver({ bot, ws }, params = {}, text = 'hey @bot_me') {
   const before = bot.log.list().at(-1)?.at;
   const message_id = String(++ids);
   ws.emit({ method: 'message', params: { room_id: 'general', message_id, from: { user_id: 'carol' }, body: { text }, ...params } });
   await bot.queue;
-  return bot.log.list(before).filter(e => e.kind === 'message').map(({ at, kind, text, ...e }) => ({ ...e, message_id: e.message_id === message_id ? 'this' : e.message_id }));
+  return bot.log.list(before).filter(e => e.kind === 'message').map(({ at, kind, text, ms, via, hedged, ...e }) => ({ ...e, message_id: e.message_id === message_id ? 'this' : e.message_id }));
 }
 // The message event deliver() expects; an extra field set to undefined is absent from the event.
 const seen = (outcome, extra = {}) => [Object.fromEntries(Object.entries({ room: 'general', message_id: 'this', from: 'carol', addressed: 'mention', outcome, ...extra }).filter(([, v]) => v !== undefined))];
@@ -264,8 +250,10 @@ test('only messages that engage the bot keep their text, and a reply records wha
   }
   const f = connected(model({ text: ' model-canary ' }));
   await deliver(f, { reply_to: { message_id: 'm1' } }, engaged);
-  const [message, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
+  const [{ ms, via, ...message }, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
   assert.deepEqual(message, { kind: 'message', room: 'general', message_id: String(ids), reply_to: 'm1', from: 'carol', addressed: 'mention', text: engaged, outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: flat });
+  assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'post', 'total']);
+  assert.deepEqual(via, { judge: 'd', compose: 'c' });
   const id = f.ws.sent.at(-1).id;
   assert.deepEqual(posted, { kind: 'posted', room: 'general', message_id: `posted-${id}`, reply_to: String(ids), text: 'model-canary' });
   assert.ok(f.bot.own.has(`posted-${id}`));
@@ -480,7 +468,7 @@ test('a mention is answered even when sizing it up fails, and learns nothing', a
   assert.deepEqual(f.bot.state.cells, {});
   assert.equal(margins.replied.say({ detail: 'timeout' }), "answered, though I couldn't size it up first (timeout).");
 });
-test('a failed or empty reply is tried once more', async () => {
+test('a failed or empty reply moves to the next model, and the chain ends with the last answer', async () => {
   let replies = 0;
   const flaky = async (url, init) => JSON.parse(init.body).temperature === 0
     ? model()(url, init)

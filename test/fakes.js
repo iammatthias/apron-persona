@@ -10,6 +10,7 @@ export function clock() {
     pending: () => due.size,
     async tick(ms = 0) {
       const end = now + ms;
+      await flush();
       for (;;) {
         const next = [...due.entries()].filter(([, t]) => t.at <= end).sort((a, b) => a[1].at - b[1].at)[0];
         if (!next) break;
@@ -36,4 +37,21 @@ export function lab() {
   });
   const sent = role => calls.filter(c => role === 'judge' ? c.body.temperature === 0 : role === 'compose' ? c.body.temperature !== 0 : true);
   return { calls, request, sent };
+}
+// A fake Apron connection that records sent frames and acknowledges each new post and history read; `emit` delivers
+// server frames. Set `history` to the messages a history read returns.
+export function socket() {
+  const listeners = {}, sent = [];
+  return {
+    sent, readyState: 1,
+    addEventListener(type, f) { (listeners[type] ??= []).push(f); },
+    removeEventListener(type, f) { listeners[type] = listeners[type]?.filter(g => g !== f); },
+    emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
+    close() { this.readyState = 3; listeners.close?.forEach(f => f({ type: 'close', code: 1006, reason: '' })); },
+    send(raw) {
+      const frame = JSON.parse(raw); sent.push(frame);
+      if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
+      if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit({ id: frame.id, result: { messages: this.history ?? [] } }));
+    },
+  };
 }

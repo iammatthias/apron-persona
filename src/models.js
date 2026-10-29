@@ -5,22 +5,23 @@ export const roles = {
   compose: { chain: ['cohere/north-mini-code:free', 'openrouter/free'], timeout: 10000, hedge: 3000 },
   learn: { chain: ['openrouter/free'], timeout: 60000, hedge: null },
 };
-// The table with the environment's overrides: DECISION_MODEL heads the judge chain, CHAT_MODEL the compose and learn chains.
+// The table with the environment's overrides: DECISION_MODEL replaces the judge chain's first model, CHAT_MODEL the
+// compose and learn chains' first.
 export function table(env) {
-  const head = (role, model) => model ? { ...role, chain: [model, ...role.chain.filter(m => m !== model)] } : role;
+  const head = (role, model) => model ? { ...role, chain: [model, ...role.chain.slice(1).filter(m => m !== model)] } : role;
   return { judge: head(roles.judge, env.DECISION_MODEL), compose: head(roles.compose, env.CHAT_MODEL), learn: head(roles.learn, env.CHAT_MODEL) };
 }
 export const real = { setTimeout: (f, ms) => setTimeout(f, ms), clearTimeout: id => clearTimeout(id) };
 // Asks a role's models until one answer passes `parse`, which returns the value or throws. send(body, signal) makes one
 // request and resolves to the response data; a request that fails, times out or returns an answer parse() rejects
 // hands over to the next model at once, and one still unanswered at the hedge delay is raced against the next model
-// while afford() allows another request. The first answer wins and the rest are aborted. Resolves { value, model, hedged },
-// where model is the one that answered (the router names the model it chose) and hedged says a race was started;
-// rejects with the last failure, or the signal's reason once it aborts.
-export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () => true, signal, timers = real }) {
+// while afford() allows another request, and raced() is told so. The first answer wins and the rest are aborted.
+// Resolves { value, model }, where model is the one that answered (the router names the model it chose); rejects
+// with the last failure, or the signal's reason once it aborts.
+export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () => true, raced = () => {}, signal, timers = real }) {
   return new Promise((resolve, reject) => {
     const live = new Set();
-    let next = 0, settled = false, hedged = false, pending, failure;
+    let next = 0, settled = false, pending, failure;
     const finish = (error, value) => {
       if (settled) return;
       settled = true;
@@ -33,7 +34,7 @@ export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () 
       timers.clearTimeout(pending);
       if (settled || next >= chain.length) return;
       if (why === 'hedge' && !afford()) return;
-      hedged ||= why === 'hedge';
+      if (why === 'hedge') raced();
       const model = chain[next++], control = new AbortController();
       const timer = timers.setTimeout(() => stop(Error('timeout')), timeout);
       const stop = reason => { timers.clearTimeout(timer); control.abort(reason); };
@@ -42,7 +43,7 @@ export function ask({ chain, timeout, hedge }, body, parse, { send, afford = () 
       const rest = chain.slice(next - 1);
       send({ ...body, model, ...rest.length > 1 ? { models: rest } : {} }, control.signal)
         .then(data => ({ value: parse(data), model: typeof data?.model === 'string' ? data.model.slice(0, 100) : model }))
-        .then(answer => finish(null, { ...answer, hedged }), e => {
+        .then(answer => finish(null, answer), e => {
           live.delete(stop); timers.clearTimeout(timer);
           if (settled) return;
           failure = control.signal.aborted ? control.signal.reason : e;

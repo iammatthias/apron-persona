@@ -1,28 +1,29 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { roles, table, ask } from '../src/models.js';
-import { clock } from './clock.js';
+import { clock } from './fakes.js';
 const content = text => ({ choices: [{ message: { content: text } }] });
 // The outcome of an ask as a value, so a rejection waited on later is never unhandled.
 const outcome = p => p.then(value => ({ value }), e => ({ error: e.message }));
 const text = data => { const s = data?.choices?.[0]?.message?.content; if (typeof s !== 'string' || !s.trim()) throw Error('reply-empty'); return s.trim(); };
 // A transport whose requests the test settles by hand; each records its body and whether it was aborted.
 function bench(role = roles.compose, { afford, signal, timers = clock() } = {}) {
-  const sent = [];
+  const sent = [], races = [];
   const send = (body, signal) => new Promise((resolve, reject) => {
     if (afford && !afford()) return reject(Error('budget'));
     const r = { body, aborted: null, resolve, reject };
     signal.addEventListener('abort', () => { r.aborted = signal.reason.message; reject(signal.reason); });
     sent.push(r);
   });
-  return { sent, timers, run: (body = {}) => ask(role, body, text, { send, afford, signal, timers }) };
+  return { sent, races, timers, run: (body = {}) => ask(role, body, text, { send, afford, raced: () => races.push(timers.now()), signal, timers }) };
 }
-test('the table heads a chain with the environment model and keeps the router behind it', () => {
+test('an environment model replaces the first of its chain and the router stays as the fallback', () => {
   assert.deepEqual(table({}), roles);
-  assert.deepEqual(table({ DECISION_MODEL: 'x/y', CHAT_MODEL: 'openrouter/free' }).judge.chain, ['x/y', 'cohere/north-mini-code:free', 'openrouter/free']);
-  assert.deepEqual(table({ CHAT_MODEL: 'openrouter/free' }).compose.chain, ['openrouter/free', 'cohere/north-mini-code:free']);
-  assert.deepEqual(table({ CHAT_MODEL: 'c' }).learn, { chain: ['c', 'openrouter/free'], timeout: 60000, hedge: null });
-  assert.deepEqual(table({ DECISION_MODEL: 'd' }).judge, { chain: ['d', 'cohere/north-mini-code:free', 'openrouter/free'], timeout: 8000, hedge: 2500 });
+  assert.deepEqual(table({ DECISION_MODEL: 'x/y', CHAT_MODEL: 'openrouter/free' }).judge.chain, ['x/y', 'openrouter/free']);
+  assert.deepEqual(table({ CHAT_MODEL: 'openrouter/free' }).compose.chain, ['openrouter/free']);
+  assert.deepEqual(table({ CHAT_MODEL: 'c' }).learn, { chain: ['c'], timeout: 60000, hedge: null });
+  assert.deepEqual(table({ CHAT_MODEL: 'c' }).compose, { chain: ['c', 'openrouter/free'], timeout: 10000, hedge: 3000 });
+  assert.deepEqual(table({ DECISION_MODEL: 'd' }).judge, { chain: ['d', 'openrouter/free'], timeout: 8000, hedge: 2500 });
 });
 test('the first model answers before the hedge delay: one request, its answer, no race', async () => {
   const b = bench();
@@ -30,7 +31,8 @@ test('the first model answers before the hedge delay: one request, its answer, n
   assert.deepEqual(b.sent.map(r => r.body), [{ max_tokens: 5, model: 'cohere/north-mini-code:free', models: ['cohere/north-mini-code:free', 'openrouter/free'] }]);
   await b.timers.tick(2999);
   b.sent[0].resolve({ ...content(' hi '), model: 'cohere/north-mini-code' });
-  assert.deepEqual(await p, { value: 'hi', model: 'cohere/north-mini-code', hedged: false });
+  assert.deepEqual(await p, { value: 'hi', model: 'cohere/north-mini-code' });
+  assert.deepEqual(b.races, []);
   assert.equal(b.timers.pending(), 0);
 });
 test('a hedge fires at the delay, the first answer wins and the loser is aborted', async () => {
@@ -40,7 +42,8 @@ test('a hedge fires at the delay, the first answer wins and the loser is aborted
   assert.deepEqual(b.sent.map(r => r.body.model), ['cohere/north-mini-code:free', 'openrouter/free']);
   assert.equal(b.sent[1].body.models, undefined);
   b.sent[1].resolve(content('second'));
-  assert.deepEqual(await p, { value: 'second', model: 'openrouter/free', hedged: true });
+  assert.deepEqual(await p, { value: 'second', model: 'openrouter/free' });
+  assert.deepEqual(b.races, [3000]);
   assert.equal(b.sent[0].aborted, 'lost');
   assert.equal(b.timers.pending(), 0);
 });
@@ -53,7 +56,8 @@ test('a failed, empty or invalid answer hands over to the next model at once', a
     assert.equal(b.sent.length, 2, why);
     assert.equal(b.timers.now(), 0);
     b.sent[1].resolve(content('ok'));
-    assert.deepEqual(await p, { value: 'ok', model: 'openrouter/free', hedged: false });
+    assert.deepEqual(await p, { value: 'ok', model: 'openrouter/free' });
+    assert.deepEqual(b.races, []);
   }
   const b = bench();
   const p = b.run();
@@ -73,6 +77,7 @@ test('an attempt times out on its own budget and the chain moves on, then fails 
   await b.timers.tick(2500);
   assert.equal(b.sent[1].aborted, 'timeout');
   assert.deepEqual(await p, { error: 'timeout' });
+  assert.deepEqual(b.races, [2500]);
   assert.equal(b.timers.pending(), 0);
 });
 test('no hedge is sent without budget, and a failover that cannot pay ends with budget', async () => {
@@ -86,6 +91,7 @@ test('no hedge is sent without budget, and a failover that cannot pay ends with 
   assert.equal(b.sent[0].aborted, 'timeout');
   assert.equal(b.sent.length, 1);
   assert.deepEqual(await p, { error: 'budget' });
+  assert.deepEqual(b.races, []);
   assert.equal(b.timers.pending(), 0);
 });
 test('the caller\'s signal aborts every attempt with its reason', async () => {

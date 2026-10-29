@@ -1,14 +1,21 @@
 import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line } from './settings.js';
-import { Log, event } from './events.js';
+import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
 import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
+import * as models from './models.js';
 const TTL = 300000;
+// A message is answered within DEADLINE or not at all; the room history gets CONTEXT ms before the bot's own memory
+// stands in; a typing notice is renewed every TYPING ms while a reply is drafted.
+const DEADLINE = 25000, CONTEXT = 3000, TYPING = 6000;
+// Failures that are outcomes in their own right, with no detail to add.
+const plain = new Set(['budget', 'stale', 'reply-empty']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
 export class Bot {
-  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000 } = {}) {
-    this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log; this.retry = retry;
+  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000, timers = models.real } = {}) {
+    this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log; this.retry = retry; this.timers = timers;
+    this.models = models.table(env);
     this.rooms = env.ROOMS.split(',').map(s => s.trim()).filter(Boolean);
     const saved = store.load();
     // Each section is checked as it loads: one that wouldn't pass the write check falls back to its default,
@@ -59,13 +66,17 @@ export class Bot {
   send(method, params, id = String(++this.seq)) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ method, id, params }));
   }
-  // A request whose response resolves the returned promise.
-  call(method, params) {
+  // A request whose response resolves the returned promise, within 10 s or the signal.
+  call(method, params, signal) {
     if (!this.ready || this.ws?.readyState !== 1) return Promise.reject(Error('not-connected'));
+    if (signal?.aborted) return Promise.reject(signal.reason);
     const id = String(++this.seq);
     return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.waiting.delete(id); reject(Error('timeout')); }, 10000);
-      this.waiting.set(id, frame => { clearTimeout(timer); frame.error ? reject(Error(frame.error.message || 'apron-request-failed')) : resolve(frame.result); });
+      const end = (error, value) => { this.timers.clearTimeout(timer); signal?.removeEventListener('abort', abort); this.waiting.delete(id); error ? reject(error) : resolve(value); };
+      const abort = () => end(signal.reason);
+      const timer = this.timers.setTimeout(() => end(Error('timeout')), 10000);
+      signal?.addEventListener('abort', abort);
+      this.waiting.set(id, frame => end(frame.error ? Error(frame.error.message || 'apron-request-failed') : null, frame.result));
       this.send(method, params, id);
     });
   }
@@ -113,7 +124,7 @@ export class Bot {
       // Each reading and the merge is one call; a job that can't afford them all makes none.
       if (this.left() < chunks.length + 1) return stage('failed', { count, detail: 'budget' });
       stage('thinking', { count });
-      const result = await synthesize(chunks, messages => this.api({ model: this.env.CHAT_MODEL, max_tokens: 6000, messages }, 60000));
+      const result = await synthesize(chunks, messages => this.ask('learn', { max_tokens: 6000, messages }, data => data).then(r => r.value));
       stage('ready', { ...result, at: Date.now() });
     })().catch(e => stage('failed', { detail: e.message }));
   }
@@ -219,20 +230,27 @@ export class Bot {
     if (this.budget.day !== day) this.budget = { day, calls: 0 };
     return +this.env.DAILY_CALLS - this.budget.calls;
   }
-  async api(body, wait = 45000) {
+  // One request to OpenRouter, counted against the day's calls before it is sent.
+  async api(body, signal) {
     if (this.left() <= 0) throw Error('budget');
     ++this.budget.calls; this.save();
     const res = await this.request('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST', signal: AbortSignal.timeout(wait),
+      method: 'POST', signal,
       headers: { Authorization: `Bearer ${this.env.OPENROUTER_API_KEY}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ ...body, reasoning: { exclude: true }, provider: { data_collection: 'deny' } }),
     });
     if (!res.ok) throw Error(`inference-${res.status}`);
     return res.json();
   }
-  // What became of one message that passed incoming(): an outcome, plus the classifier's probabilities once known.
+  // Asks the models of one role, in the table's order, while the day's calls last; raced() hears of a hedge.
+  ask(role, body, parse, signal, raced) {
+    return models.ask(this.models[role], body, parse, { send: (b, s) => this.api(b, s), afford: () => this.left() > 0, raced, signal, timers: this.timers });
+  }
+  // What became of one message that passed incoming(): an outcome, the classifier's probabilities once known, and the
+  // time each stage took. Everything the message starts stops when it is settled or when the deadline or the
+  // connection ends it.
   async handle(p) {
-    const connection = this.ws;
+    const connection = this.ws, began = performance.now();
     this.prune();
     const text = p.body.text.slice(0, 2000), now = Date.now();
     const hash = await fingerprint(this.env.HASH_SECRET, text);
@@ -247,50 +265,84 @@ export class Bot {
     const clocks = { now, lastReply: this.lastReply, lastOrganic: this.organic.get(p.room_id) ?? 0 };
     const early = trigger(this.settings, { addressed, eligible }, clocks);
     if (early) return { outcome: early.outcome };
-    const failed = (outcome, e, scores) => e.message === 'budget' ? { outcome: 'budget', ...scores } : { outcome, ...scores, detail: e.name === 'TimeoutError' ? 'timeout' : e.message };
+    const run = new AbortController(), ms = {}, via = {}, hedged = [];
+    const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
+    const asked = async (role, body, parse) => {
+      const r = await timed(role, () => this.ask(role, body, parse, run.signal, () => hedged.includes(role) || hedged.push(role)));
+      via[role] = r.model;
+      return r.value;
+    };
+    const deadline = this.timers.setTimeout(() => run.abort(Error('deadline')), DEADLINE);
+    const stale = () => run.abort(Error('stale'));
+    connection.addEventListener('close', stale); connection.addEventListener('error', stale);
+    try {
+      const result = await this.pipeline(p, { text, addressed, eligible, participant, clocks, connection, signal: run.signal, timed, asked });
+      const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
+      return { ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} };
+    } finally {
+      run.abort(Error('settled'));
+      this.timers.clearTimeout(deadline);
+      connection.removeEventListener('close', stale); connection.removeEventListener('error', stale);
+    }
+  }
+  // The stages: context (the room's history), judge (the classifier) and compose (the reply) run together for a
+  // message that addresses the bot, and the judge's verdict gates only the post, so a decline aborts the draft.
+  // For any other message the judge decides first whether a reply is drafted at all.
+  async pipeline(p, { text, addressed, eligible, participant, clocks, connection, signal, timed, asked }) {
+    const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
+    // Would the surest possible verdict post? If not (cooldown, trigger off, chime-in gap), nothing is read or drafted ahead.
+    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1 }, clocks).respond;
+    const within = (budget, work) => {
+      const c = new AbortController(), timer = this.timers.setTimeout(() => c.abort(Error('timeout')), budget), relay = () => c.abort(signal.reason);
+      signal.addEventListener('abort', relay);
+      return work(c.signal).finally(() => { this.timers.clearTimeout(timer); signal.removeEventListener('abort', relay); });
+    };
+    const own = () => this.context.filter(x => x.room === p.room_id).slice(-8);
+    const context = hopeful ? timed('context', () => within(CONTEXT, s => this.recent(p, s))).then(lines => lines ?? own(), own) : null;
+    const draft = organic => context.then(lines => {
+      if (signal.aborted) throw signal.reason;
+      const stop = this.typing(p.room_id, connection);
+      const body = {
+        max_tokens: 1500,
+        messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name, this.notes(p.room_id)) },
+          { role: 'user', content: roomPrompt(lines, organic) }],
+      };
+      const spoken = data => {
+        const raw = data?.choices?.[0]?.message?.content, s = typeof raw === 'string' ? line(raw, ['you', this.name, this.self]) : '';
+        if (!s) throw Error('reply-empty');
+        return s;
+      };
+      return asked('compose', body, spoken).finally(stop);
+    });
+    let compose = addressed && hopeful ? draft(false) : null;
+    // A draft nobody posts rejects once aborted; that is expected, not an error to report.
+    compose?.catch(() => {});
     let result, unsized;
-    try { result = decision(await this.api({ model: this.env.DECISION_MODEL, max_tokens: 1500, temperature: 0, messages: classify(text) })); }
+    try { result = await asked('judge', { max_tokens: 1500, temperature: 0, messages: classify(text) }, decision); }
     catch (e) {
       // Someone talking to the bot gets an answer even when sizing the message up failed; it just learns nothing.
       if (!addressed || e.message === 'budget') return failed('classify-failed', e);
-      unsized = failed('classify-failed', e).detail;
+      unsized = e.message;
       result = { learn: 0, reply: 1, vector: null };
     }
     if (connection !== this.ws) return { outcome: 'stale' };
     const learned = eligible && !unsized && result.learn >= .8;
     if (learned) {
-      this.people.set(participant, now);
-      learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
+      this.people.set(participant, clocks.now);
+      learn(this.state, result.vector, result.learn, clocks.now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
     }
     // style is present only when the message was learned from.
     const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
     const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point }, { ...clocks, lastReply: this.lastReply });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
-    this.prune();
-    const lines = await this.recent(p).catch(() => null) ?? this.context.filter(x => x.room === p.room_id).slice(-8);
-    if (connection !== this.ws) return { outcome: 'stale', respond, ...scores };
-    const body = {
-      model: this.env.CHAT_MODEL, max_tokens: 1500,
-      messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name, this.notes(p.room_id)) },
-        { role: 'user', content: roomPrompt(lines, organic) }],
-    };
-    // The free router picks a model per call, so one retry usually lands on a different one.
-    let reply = '', error;
-    for (let attempt = 0; attempt < 2 && !reply; ++attempt) {
-      try {
-        const raw = (await this.api(body))?.choices?.[0]?.message?.content;
-        reply = typeof raw === 'string' ? line(raw, ['you', this.name, this.self]) : '';
-        error = undefined;
-      } catch (e) { error = e; if (e.message === 'budget') break; }
-      if (connection !== this.ws) return { outcome: 'stale', respond, ...scores };
-    }
-    if (error) return failed('reply-failed', error, { respond, ...scores });
-    if (!reply) return { outcome: 'reply-empty', respond, ...scores };
+    compose ??= draft(organic);
+    let reply;
+    try { reply = await compose; } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     const content = reply.slice(0, 1800);
     // A chime-in is a plain message, not a reply to the one that prompted it.
-    const sent = this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } });
+    const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
     this.lastReply = Date.now();
     if (organic) this.organic.set(p.room_id, this.lastReply);
     if (!organic) {
@@ -302,10 +354,23 @@ export class Bot {
     try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
     catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
   }
+  // Shows the room that the bot is typing while a reply is drafted, where the server relays activity: on at once, again
+  // every TYPING ms, and off when the draft ends. Returns what ends it; a second call does nothing.
+  typing(room_id, connection) {
+    if (!Array.isArray(this.server?.capabilities) || !this.server.capabilities.includes('activity')) return () => {};
+    let timer, over = false;
+    const on = () => { if (this.ws === connection) this.send('activity', { room_id, typing: 8 }); timer = this.timers.setTimeout(on, TYPING); };
+    on();
+    return () => {
+      if (over) return;
+      over = true; this.timers.clearTimeout(timer);
+      if (this.ws === connection) this.send('activity', { room_id, typing: 0 });
+    };
+  }
   // The room's last messages up to and including p, read from Apron just for this reply and never kept:
   // what the bot saw live since its last restart is too little to answer from.
-  async recent(p, size = 20) {
-    const page = await this.call('history', { room_id: p.room_id, limit: 40 });
+  async recent(p, signal, size = 20) {
+    const page = await this.call('history', { room_id: p.room_id, limit: 40 }, signal);
     const latest = new Map();
     for (const m of page?.messages ?? []) {
       const seen = latest.get(m.message_id);
