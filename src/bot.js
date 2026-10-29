@@ -46,7 +46,8 @@ export class Bot {
   // Only a connection that was signed in is lost; an attempt that ends sooner is tried again next tick.
   drop(reason) {
     const ws = this.ws, up = this.ready;
-    this.ws = null; this.ready = false; this.context = [];
+    // What was queued on this connection is dropped as stale, so nothing it was the newest of remains.
+    this.ws = null; this.ready = false; this.context = []; this.newest.clear();
     if (up) this.record('disconnected', { reason });
     ws.close();
     // A signed-in socket that the network broke comes back in seconds, not at the next minute tick.
@@ -148,18 +149,20 @@ export class Bot {
     await this.call('message', { room_id, message_id, deleted: true });
     this.record('deleted', { room: room_id, message_id });
   }
+  // Who spoke when, per room, in memory only. Recorded once per message, as it arrives.
+  hear(p) {
+    if (incoming(p, this.self, this.bots, this.rooms)) return;
+    const now = Date.now(), heard = this.heard.get(p.room_id) ?? new Map();
+    heard.set(p.from.user_id, now); this.heard.set(p.room_id, heard);
+    for (const [id, at] of heard) if (now - at > 30 * 60000) heard.delete(id);
+  }
+  // How a message reaches the bot, from the room as it stands: a sender alone with the bot, or just answered by it,
+  // is talking to it. Reads who spoke when; hear() writes it.
   addressed(p) {
     const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
     const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`) || named(text, [this.name, this.self]));
-    // Who spoke when, per room, in memory only: a sender alone with the bot, or just answered by it, is talking to it.
-    const room = p?.room_id, user = p?.from?.user_id, now = Date.now();
-    let talking = false;
-    if (!incoming(p, this.self, this.bots, this.rooms)) {
-      const heard = this.heard.get(room) ?? new Map();
-      talking = conversing(heard, this.answered.get(room) ?? new Map(), user, now);
-      heard.set(user, now); this.heard.set(room, heard);
-      for (const [id, at] of heard) if (now - at > 30 * 60000) heard.delete(id);
-    }
+    const room = p?.room_id, user = p?.from?.user_id;
+    const talking = !incoming(p, this.self, this.bots, this.rooms) && conversing(this.heard.get(room) ?? new Map(), this.answered.get(room) ?? new Map(), user, Date.now());
     return addressing(this.settings, mention || talking, this.own.has(p?.reply_to?.message_id));
   }
   connect() {
@@ -190,7 +193,9 @@ export class Bot {
         if (u?.roles?.includes('bot')) this.bots.add(u.user_id);
       }
       if (frame.method !== 'message') return;
-      const p = frame.params, addressed = this.addressed(p);
+      const p = frame.params;
+      this.hear(p);
+      const addressed = this.addressed(p);
       const seen = { room: p?.room_id, message_id: p?.message_id, reply_to: p?.reply_to?.message_id, from: p?.from?.user_id,
         name: typeof p?.from?.name === 'string' ? p.from.name.slice(0, 64) : undefined, addressed };
       // Text is kept, in memory only, just for messages that engage the bot: addressed, or ones it set out to chime in on.
@@ -204,10 +209,11 @@ export class Bot {
         this.drafting.get(p.room_id)?.(p.from.user_id);
       }
       ++this.pending;
-      this.queue = this.queue.then(() => this.ws === ws ? this.handle(p) : { outcome: 'stale' })
+      this.queue = this.queue.then(() => this.ws === ws ? this.handle(p, addressed) : { outcome: 'stale' })
         .then(({ posted, respond, topic, ...result }) => {
-          this.record('message', { ...seen, text: text(addressed || respond), ...result });
-          if (topic) { tally(this.memory, p.room_id, dayOf(Date.now()), { topic, engaged: !!addressed, outcome: result.outcome, style: result.style }); this.dirty = true; }
+          const e = { ...seen, ...result };
+          this.record('message', { ...e, text: text(e.addressed || respond) });
+          if (topic) { tally(this.memory, p.room_id, dayOf(Date.now()), { topic, engaged: !!e.addressed, outcome: e.outcome, style: e.style }); this.dirty = true; }
           if (posted) this.record('posted', { room: p.room_id, ...posted });
         }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
@@ -258,17 +264,25 @@ export class Bot {
   ask(role, body, parse, signal, raced) {
     return models.ask(this.models[role], body, parse, { send: (b, s, why) => this.api(role, b, s, why), afford: () => this.left() > 0, raced, signal, timers: this.timers });
   }
-  // What became of one message that passed incoming(): an outcome, the classifier's probabilities once known, and the
-  // time each stage took. Everything the message starts stops when it is settled or when the deadline or the
-  // connection ends it.
-  async handle(p) {
+  // What became of one message that passed incoming(): an outcome, how it addressed the bot, the classifier's
+  // probabilities once known, and the time each stage took. `addressed` is how the message read when it arrived;
+  // one that read as nothing then may have become a follow-up since, once the bot answered its sender, so it is
+  // read again now. It is never read down: what the arrival decided (the newest, the draft it superseded) stands.
+  async handle(p, addressed) {
+    addressed ??= this.addressed(p);
+    return { addressed, ...await this.consider(p, addressed) };
+  }
+  // Everything the message starts stops when it is settled or when the deadline or the connection ends it.
+  async consider(p, addressed) {
     const connection = this.ws, began = performance.now();
     this.prune();
+    // This message is no longer pending, so it is no longer anyone's newest; a newer one from its sender supersedes it.
+    const pending = this.newest.get(p.room_id), mine = pending?.get(p.from.user_id) === p.message_id;
+    if (mine) pending.delete(p.from.user_id);
     const text = p.body.text.slice(0, 2000), now = Date.now();
     const hash = await fingerprint(this.env.HASH_SECRET, text);
     if (this.seen.has(hash)) return { outcome: 'duplicate' };
     this.seen.set(hash, now);
-    const addressed = this.addressed(p);
     const speaker = (typeof p.from.name === 'string' && p.from.name.replace(/\s+/g, ' ').trim().slice(0, 64)) || p.from.user_id;
     this.context.push({ room: p.room_id, at: now, name: speaker, content: text });
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
@@ -278,8 +292,7 @@ export class Bot {
     const spokeLast = this.spoke.delete(p.room_id);
     const early = trigger(this.settings, { addressed, eligible });
     if (early) return { outcome: early.outcome };
-    const latest = this.newest.get(p.room_id)?.get(p.from.user_id);
-    if (addressed && latest !== undefined && latest !== p.message_id) return { outcome: 'superseded' };
+    if (addressed && !mine && pending?.has(p.from.user_id)) return { outcome: 'superseded' };
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
     const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
     const asked = async (role, body, parse) => {

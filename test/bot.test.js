@@ -562,6 +562,9 @@ test('who spoke when is forgotten after the windows it serves', async () => {
   f.bot.heard.set('general', new Map([['old', Date.now() - 31 * 60000], ['zed', Date.now()]]));
   await deliver(f, {}, 'hello');
   assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
+  // Reading how a message addresses the bot records nothing: only its arrival does.
+  f.bot.addressed({ room_id: 'general', message_id: 'x', from: { user_id: 'dave' }, body: { text: 'hi' } });
+  assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
 });
 test('a signed-in connection the network breaks is retried in seconds, a refused or switched one is not', async () => {
   const sockets = [];
