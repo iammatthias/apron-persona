@@ -380,6 +380,8 @@ export class Bot {
     let reply;
     try { reply = await compose; } catch (e) { return failed('reply-failed', e, { respond, ...scores }); }
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
+    // Nothing below is remembered unless the post goes out, and call() refuses an aborted run before sending.
+    if (signal.aborted) return failed('reply-failed', signal.reason, { respond, ...scores });
     const content = reply.slice(0, 1800);
     post();
     // A chime-in is a plain message, not a reply to the one that prompted it.
@@ -392,8 +394,14 @@ export class Bot {
       for (const [id, when] of answered) if (at - when > 10 * 60000) answered.delete(id);
     }
     this.context.push({ room: p.room_id, at, name: 'you', content });
-    try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...organic ? { organic: true } : { reply_to: p.message_id }, text: content } }; }
-    catch (e) { return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` }; }
+    const where = organic ? { organic: true } : { reply_to: p.message_id };
+    try { return { ...verdict, respond, ...scores, posted: { message_id: (await sent)?.message_id, ...where, text: content } }; }
+    catch (e) {
+      // call() sends before anything but a closed socket can fail it, so any other failure is a post the server never
+      // confirmed: it went out, and is recorded as posted without the id only the acknowledgement carries.
+      if (e.message === 'not-connected') return { outcome: 'reply-failed', respond, ...scores, detail: `post-${e.message}` };
+      return { ...verdict, respond, ...scores, detail: `post-${e.message}`, posted: { ...where, text: content } };
+    }
   }
   // Shows the room that the bot is typing while a reply is drafted, where the server relays activity: on at once, again
   // every TYPING ms, and off when the draft ends. Returns what ends it; a second call does nothing.
