@@ -334,7 +334,6 @@ export class Bot {
     const context = hopeful ? timed('context', () => within(recall.wait, s => this.recent(p, s))).then(lines => lines ?? own(), own) : null;
     const draft = organic => context.then(lines => {
       if (signal.aborted) throw signal.reason;
-      const stop = this.typing(p.room_id, connection);
       const body = {
         max_tokens: 1500,
         messages: [{ role: 'system', content: systemPrompt(this.settings, this.traits(), this.name, this.notes(p.room_id)) },
@@ -345,6 +344,8 @@ export class Bot {
         if (!s) throw Error('reply-empty');
         return s;
       };
+      // The notice starts only once the request is sure to be made, so whatever ends the request ends it.
+      const stop = this.typing(p.room_id, connection);
       return asked('compose', body, spoken).finally(stop);
     });
     let compose = addressed && hopeful ? draft(false) : null;
