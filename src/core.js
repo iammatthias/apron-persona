@@ -102,11 +102,13 @@ export function addressing(s, mention, reply) {
   return mention ? 'mention' : reply ? 'reply' : undefined;
 }
 const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
-// How many posts the bot makes to one sender, with nobody else speaking in the room, before it rests until someone
-// else does. Six answers in a row is a longer solo exchange than a regular holds in a public room before someone
-// else joins in, and it caps what a peer bot nobody flagged can draw: six answers, about twelve of forty daily
-// calls. The bot's owner is never counted (bot.js passes turns 0 for them).
-export const LOOP_TURNS = 6;
+// How many of a room's last LOOP_WINDOW turns the bot may take before it rests there: a third. A turn of its own is a
+// post, except one answering its owner (bot.js keeps the count, and passes 0 for the owner). Six in a row is a longer
+// solo exchange than a regular holds in a public room before someone else joins
+// in; eighteen makes a third the ceiling, which holds however the senders alternate: two peer bots nobody flagged, or
+// one on two accounts, draw six answers, then eight rests, then six, where a count per sender started over whenever
+// anyone else spoke. With a ceiling of half (six of twelve) a pair taking turns is answered four times in five.
+export const LOOP_TURNS = 6, LOOP_WINDOW = 18;
 // How many messages from others follow one of the bot's posts before it may chime in again. One unprompted post in
 // four messages is a regular who pipes up now and then; one in two (the old rule, a wait for the bot's post to stop
 // being the latest) was a second voice in every exchange when one person was doing the talking.
@@ -115,8 +117,8 @@ export const CHIME_EVERY = 4;
 // reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
 // eligible for learning are considered. A chime-in also needs something concrete to say (point_p), and comes at most
 // once per CHIME_EVERY messages from others (since: how many have followed the bot's last post here, this one
-// included; none yet posted counts as plenty). turns is how many posts the bot has made to this sender since anyone
-// else spoke here. Nothing here is a matter of time: someone talking to the bot is answered however recently it posted.
+// included; none yet posted counts as plenty). turns is how many of the room's last LOOP_WINDOW turns were the bot's
+// own. Nothing here is a matter of time: someone talking to the bot is answered however recently it posted.
 export function trigger(s, { addressed, eligible, reply_p, point_p, since = Infinity, turns = 0 }) {
   const open = !!addressed && s[gates[addressed]], looping = turns >= LOOP_TURNS;
   if (reply_p === undefined) {

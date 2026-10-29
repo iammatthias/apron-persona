@@ -2,7 +2,7 @@ import { dailyCap } from './bot.js';
 import { transcript, fold, today } from './transcript.js';
 import { margins, churn } from './events.js';
 import { promptParts, roomPrompt, recall, list } from './settings.js';
-import { axes, leanings, LOOP_TURNS } from './core.js';
+import { axes, leanings, LOOP_TURNS, LOOP_WINDOW } from './core.js';
 import { roles } from './models.js';
 import { dayOf } from './memory.js';
 // The admin portal's view models: plain data computed from one snapshot of the bot, which the dashboard renders.
@@ -32,14 +32,12 @@ function missed(s) {
   const from = midnight(s.now);
   return transcript(s.events, s.rooms).rooms.map(r => ({ id: r.id, rows: r.rows.filter(x => x.unanswered && x.at >= from) }));
 }
-const who = e => e.name ?? e.from ?? 'someone';
-// Each room where the bot is resting a back-and-forth: its latest rested message, unless anyone else has spoken there since.
+// Each room where the bot is resting, with its latest rested message. The events can't see the room's turns, so a
+// room rests from its latest rested mention until a later mention there meets another outcome.
 function resting(s) {
   return s.rooms.flatMap(id => {
-    const here = s.events.filter(e => e.kind === 'message' && e.room === id && margins[e.outcome].place === 'room');
-    const last = here.findLastIndex(e => e.outcome === 'looping');
-    if (last < 0 || here.slice(last + 1).some(e => e.from !== here[last].from)) return [];
-    return [{ id, who: who(here[last]), at: here[last].at }];
+    const last = s.events.findLast(e => e.kind === 'message' && e.room === id && e.addressed && margins[e.outcome].place === 'room');
+    return last?.outcome === 'looping' ? [{ id, at: last.at }] : [];
   });
 }
 // The status strip on every page.
@@ -67,8 +65,8 @@ export function needs(s) {
     out.push({ group: 'room', tone: rows.some(r => r.tone === 'bad') ? 'bad' : 'warn', href: href({ view: 'room', room: id }),
       text: `${plural(rows.length, 'mention')} in #${id} got no answer`, misses: rows.map(r => ({ who: r.who, at: r.at, why: margins[r.outcome].miss ?? r.outcome })) });
   }
-  for (const r of resting(s)) out.push({ group: 'room', tone: 'warn', href: href({ view: 'room', room: r.id }), text: `I'm resting with ${r.who} in #${r.id} until someone else speaks`, at: r.at,
-    why: `we went back and forth ${LOOP_TURNS} times with nobody else around, so their later messages wait too.` });
+  for (const r of resting(s)) out.push({ group: 'room', tone: 'warn', href: href({ view: 'room', room: r.id }), text: `I'm resting in #${r.id}`, at: r.at,
+    why: `I'd taken ${LOOP_TURNS} of the last ${LOOP_WINDOW} turns there, so mentions wait until the room has moved on. yours don't.` });
   for (const [id, said] of Object.entries(s.unavailable ?? {})) out.push({ group: 'room', tone: 'bad', href: href({ view: 'room', room: id }), text: `#${id} doesn't exist or I can't see it`, why: `the server said "${said}". I'll try again when I next sign in.` });
   if (learning?.stage === 'ready') out.push({ group: 'persona', tone: 'ok', href: '/?view=bot#persona', text: `a redraft from ${plural(learning.count, 'message')} in ${where(learning)} is ready to review`,
     why: learning.failed ? `${learning.failed} of my readings failed (${learning.detail}), so it leans on the rest.` : 'apply or discard it under who I am.' });

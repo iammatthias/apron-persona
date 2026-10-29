@@ -578,7 +578,7 @@ test('alone with the bot, or just answered by it, a sender is talking to it', as
 });
 // A sender's reply to the bot's latest post, as a peer bot's would be.
 const replyTo = (f, user_id, text) => deliver(f, { from: { user_id }, reply_to: { message_id: f.bot.log.list().findLast(e => e.kind === 'posted').message_id } }, text);
-test('a sender the bot has answered six times with nobody else speaking gets a rest, and the bot picks up once someone else speaks', async () => {
+test('a sender the bot has answered six times running gets a rest, and the bot picks up once the room has moved on', async () => {
   let calls = 0;
   const f = connected(async (...a) => { ++calls; return model()(...a); });
   const outcomes = [(await deliver(f, { from: { user_id: 'dave' } }, 'hey @bot_me'))[0].outcome];
@@ -589,8 +589,11 @@ test('a sender the bot has answered six times with nobody else speaking gets a r
   // Just answered, dave is conversing, which addressing() ranks with a mention.
   assert.deepEqual(await replyTo(f, 'dave', 'hello?'), [{ room: 'general', message_id: 'this', reply_to: mine, from: 'dave', addressed: 'mention', outcome: 'looping' }]);
   assert.equal(calls, 12);
+  // One voice more doesn't move the room on: its six posts still sit among the last eighteen turns.
   assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'what did I miss'))[0].outcome, 'learned-only');
-  assert.equal((await replyTo(f, 'dave', 'erin, nothing'))[0].outcome, 'replied');
+  assert.equal((await replyTo(f, 'dave', 'erin, nothing'))[0].outcome, 'looping');
+  for (const text of ['a lot it seems', 'anyway', 'lunch?', 'soup']) assert.equal((await deliver(f, { from: { user_id: 'erin' } }, text))[0].outcome, 'rate-limited');
+  assert.equal((await replyTo(f, 'dave', 'soup sounds good'))[0].outcome, 'replied');
   assert.deepEqual([posts(f.ws).length, calls], [7, 15]);
 });
 test("the bot's owner is never rested, however long they keep talking to it alone", async () => {

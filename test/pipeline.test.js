@@ -151,7 +151,7 @@ test('a reply the deadline ends before it is posted is not remembered as said, a
   assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'deadline', 0]);
   assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
   assert.equal(r.bot.answered.get('general')?.size ?? 0, 0);
-  assert.equal(r.bot.talk.get('general').turns, 0);
+  assert.deepEqual(r.bot.turns.get('general'), [null]);
 });
 test('a reply that was sent but never acknowledged is recorded as posted, without an id, and the margin says so', async () => {
   const r = rig();
@@ -182,7 +182,7 @@ test('a post the server answers with an error is a failed reply, and nothing rem
   assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'post-Guests can only read here', 1]);
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'posted'), []);
   assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
-  assert.deepEqual([r.bot.talk.get('general').turns, r.bot.answered.get('general')?.size ?? 0], [0, 0]);
+  assert.deepEqual([r.bot.turns.get('general'), r.bot.answered.get('general')?.size ?? 0], [[null], 0]);
 });
 test('losing the connection aborts every call in flight and the message is stale', async () => {
   const r = rig();

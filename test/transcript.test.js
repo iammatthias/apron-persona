@@ -111,7 +111,7 @@ test('every outcome has a margin, and a learned style names its strongest lean',
 });
 test('a message the bot rested on is an unanswered mention, with its margin saying why', () => {
   const rested = [msg(2, 'looping', { addressed: 'reply', text: 'and another thing' })];
-  assert.deepEqual(transcript(rested, ['general']).rooms[0].rows, [said(2, 'looping', 'ben', 'and another thing', "we've gone back and forth a lot with nobody else around, so I'm letting it rest until someone else speaks.")]);
+  assert.deepEqual(transcript(rested, ['general']).rooms[0].rows, [said(2, 'looping', 'ben', 'and another thing', "I've taken 6 of the last 18 turns here, so I'm sitting this one out.")]);
   assert.equal(today(rested.map(e => ({ ...e, at: Date.now() })), Date.now()).unanswered, 1);
 });
 test('a post deleted later loses its delete, and a message that did not engage the bot has no text', () => {

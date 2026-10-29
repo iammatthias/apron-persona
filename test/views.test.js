@@ -85,22 +85,22 @@ test('needs you groups each room\'s unanswered mentions with their reasons, then
   assert.deepEqual(needs({ ...s, events: [], limit: '0', status: { ...s.status, budget: { day: '', calls: 0 } } }), [{ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: 'DAILY_CALLS is 0, so I make no calls today', why: '' }]);
   assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, budget: { day: '', calls: 0 } } }), []);
 });
-test('needs you says which room the bot is resting in and with whom, until someone else speaks there', () => {
+test('needs you says which room the bot is resting in, until a later mention there meets another outcome', () => {
   const rested = (m, extra = {}) => msg(m, 'general', 'looping', { name: 'dave', from: 'u_dave', addressed: 'reply', text: `and ${m}`, ...extra });
   const calm = { ...s, status: { ...s.status, budget: { day: '', calls: 0 } } };
   const resting = needs({ ...calm, events: [rested(9), rested(8)] });
   assert.deepEqual(resting, [
     { group: 'room', tone: 'warn', href: '/?view=room&room=general', text: '2 mentions in #general got no answer', misses: [{ who: 'dave', at: at(9), why: 'resting' }, { who: 'dave', at: at(8), why: 'resting' }] },
-    { group: 'room', tone: 'warn', href: '/?view=room&room=general', text: "I'm resting with dave in #general until someone else speaks", at: at(8), why: 'we went back and forth 6 times with nobody else around, so their later messages wait too.' },
+    { group: 'room', tone: 'warn', href: '/?view=room&room=general', text: "I'm resting in #general", at: at(8), why: "I'd taken 6 of the last 18 turns there, so mentions wait until the room has moved on. yours don't." },
   ]);
-  // Someone else spoke in the room since, so the rest is over; the misses stay.
-  const over = needs({ ...calm, events: [rested(9), msg(7, 'general', 'learned-only', { name: 'erin', from: 'u_erin', learn_p: .5 })] });
+  // Chatter since, and the same sender's later messages whatever became of them, keep the rest: the events can't see the room's turns.
+  const chatter = needs({ ...calm, events: [rested(9), msg(7, 'general', 'learned-only', { name: 'erin', from: 'u_erin', learn_p: .5 }), msg(6, 'general', 'duplicate', { name: 'dave', from: 'u_dave' })] });
+  assert.deepEqual(chatter.map(n => n.text), ['1 mention in #general got no answer', "I'm resting in #general"]);
+  // A later mention answered, declined or otherwise handled ends it; the misses stay.
+  const over = needs({ ...calm, events: [rested(9), msg(7, 'general', 'replied', { name: 'erin', from: 'u_erin', addressed: 'mention', text: '@bot back?', reply_p: .9 })] });
   assert.deepEqual(over.map(n => n.text), ['1 mention in #general got no answer']);
-  // The same sender's later messages, whatever became of them, keep the rest.
-  const still = needs({ ...calm, events: [rested(9), msg(7, 'general', 'duplicate', { name: 'dave', from: 'u_dave' })] });
-  assert.deepEqual(still.map(n => n.text), ['1 mention in #general got no answer', "I'm resting with dave in #general until someone else speaks"]);
   // Another room's rest is its own item.
-  assert.deepEqual(needs({ ...calm, events: [rested(9, { room: 'builds' })] }).map(n => n.text), ['1 mention in #builds got no answer', "I'm resting with dave in #builds until someone else speaks"]);
+  assert.deepEqual(needs({ ...calm, events: [rested(9, { room: 'builds' })] }).map(n => n.text), ['1 mention in #builds got no answer', "I'm resting in #builds"]);
   assert.deepEqual(needs({ ...calm, events: [] }), []);
 });
 test('needs you names a watched room the server would not let the bot into', () => {

@@ -1,4 +1,4 @@
-import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger } from './core.js';
+import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line, recall } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
@@ -33,9 +33,10 @@ export class Bot {
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
     this.context = []; this.seen = new Map(); this.people = new Map();
     this.bots = new Set(); this.own = new Set(); this.newest = new Map(); this.drafting = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
-    // Per room: who has been speaking since anyone else did (user), how many posts the bot has made since (turns), and
-    // how many messages from others have followed the bot's last post (since).
-    this.talk = new Map();
+    // Per room: who took each of its last LOOP_WINDOW turns, oldest first. null is a message from someone else; a string
+    // is a turn of the bot's own, naming whom it answered ('' for a chime-in). A message dropped before it is handled
+    // (busy, paused) takes no turn. Turns answering the owner never rest the room; they still pace chime-ins.
+    this.turns = new Map();
     // Watched rooms the server refused this sign-in, with what it said. Asking again for a room it refused drew
     // "Repeated policy violations" and a dropped connection, so one is left alone until the next sign-in tries it again.
     this.unavailable = new Map();
@@ -241,7 +242,7 @@ export class Bot {
   use(url, token) {
     this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
     if (this.ws) this.drop('switched');
-    this.bots.clear(); this.own.clear(); this.self = this.you = this.server = this.latency = undefined; this.error = null;
+    this.bots.clear(); this.own.clear(); this.turns.clear(); this.self = this.you = this.server = this.latency = undefined; this.error = null;
     this.connect();
   }
   authed(you) {
@@ -309,14 +310,21 @@ export class Bot {
     const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
     // One learning contribution per participant per five minutes.
     const eligible = !this.people.has(participant);
-    // Someone else speaking starts a new run; the bot's owner is never rested. This message counts toward the next chime-in.
-    const talk = this.talk.get(p.room_id) ?? { user: null, turns: 0, since: Infinity };
-    if (talk.user !== p.from.user_id) { talk.user = p.from.user_id; talk.turns = 0; }
-    ++talk.since; this.talk.set(p.room_id, talk);
-    const turns = p.from.user_id === this.owner ? 0 : talk.turns, since = talk.since;
+    // The room's last turns as they stand, before this message takes one: how many are the bot's own (none, to its
+    // owner), and how many messages have followed its last post, this one included.
+    const log = this.turns.get(p.room_id) ?? [], last = log.findLastIndex(x => x !== null);
+    const turns = p.from.user_id === this.owner ? 0 : log.filter(x => x !== null && x !== this.owner).length;
+    const since = last < 0 ? Infinity : log.length - last;
+    // What this message left in the room: a turn of its sender's, and one of the bot's where its post went out.
+    const took = result => {
+      log.push(null);
+      if (result.posted) log.push(result.posted.organic ? '' : p.from.user_id);
+      this.turns.set(p.room_id, log.slice(-LOOP_WINDOW));
+      return result;
+    };
     const early = trigger(this.settings, { addressed, eligible, since, turns });
-    if (early) return { outcome: early.outcome };
-    if (addressed && !mine && pending?.has(p.from.user_id)) return { outcome: 'superseded' };
+    if (early) return took({ outcome: early.outcome });
+    if (addressed && !mine && pending?.has(p.from.user_id)) return took({ outcome: 'superseded' });
     const run = new AbortController(), ms = {}, via = {}, hedged = [];
     const timed = async (stage, work) => { const from = performance.now(); try { return await work(); } finally { ms[stage] = Math.round(performance.now() - from); } };
     const asked = async (role, body, parse) => {
@@ -334,7 +342,7 @@ export class Bot {
     try {
       const result = await this.pipeline(p, { text, addressed, eligible, participant, since, turns, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
-      return { ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} };
+      return took({ ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} });
     } finally {
       run.abort(Error('settled'));
       if (this.drafting.get(p.room_id) === slot) this.drafting.delete(p.room_id);
@@ -404,10 +412,9 @@ export class Bot {
     post();
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
-    // What the room holds once the post has gone out: the bot spoke here, to this sender, and said this.
+    // What the room holds once the post has gone out: the bot answered this sender, and said this. consider() records the turn.
     const spoke = () => {
-      const at = Date.now(), talk = this.talk.get(p.room_id);
-      ++talk.turns; talk.since = 0;
+      const at = Date.now();
       if (!organic) {
         const answered = this.answered.get(p.room_id) ?? new Map();
         answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);

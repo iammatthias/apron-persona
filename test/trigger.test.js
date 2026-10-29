@@ -48,7 +48,7 @@ test('unaddressed messages: organic switch, then its bar, then four messages fro
   for (const since of [4, 5, 40, Infinity, undefined]) assert.deepEqual(decide(on, .95, since), { respond: 'organic', outcome: 'chimed-in' }, String(since));
   assert.deepEqual(decide(on, .5, 1), { respond: null, outcome: 'held-back', need: .9 });
 });
-test('after six of its posts to one sender with nobody else speaking, the bot rests: no answer, no chime-in, no draft', () => {
+test("after six of a room's last eighteen turns were its own, the bot rests there: no answer, no chime-in, no draft", () => {
   const decide = (addressed, turns, s = {}) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p: .95, point_p: .95, since: 4, turns });
   for (const addressed of ['mention', 'reply']) {
     assert.deepEqual(decide(addressed, undefined), { respond: addressed, outcome: 'replied' });

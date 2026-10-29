@@ -1,4 +1,4 @@
-import { axes, leanings } from './core.js';
+import { axes, leanings, LOOP_TURNS, LOOP_WINDOW } from './core.js';
 // Every kind of event the bot records. Only declared fields are kept: a message's text only when it engages the bot.
 export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
@@ -34,7 +34,7 @@ export const outcomes = {
   'held-back': 'Not addressed; below the chime-in bar',
   'nothing-to-add': 'Not addressed; nothing specific to add',
   'spoke-last': 'Not addressed; the bot posted here within the last few messages',
-  looping: 'Resting a long back-and-forth with nobody else around',
+  looping: `Resting: the bot took ${LOOP_TURNS} of the room's last ${LOOP_WINDOW} turns`,
   superseded: 'Addressed; the sender\'s next message was taken up instead',
   budget: 'Skipped: daily calls used up',
   'classify-failed': 'Classification failed',
@@ -76,7 +76,7 @@ export const margins = {
   'held-back': { place: 'room', fold: true, say: e => `could have chimed in (${p2(e.reply_p)}), but I hold out for ${p2(e.need)}.` },
   'nothing-to-add': { place: 'room', fold: true, say: e => `could have chimed in, but I had nothing specific to add (${p2(e.point_p)}).` },
   'spoke-last': { place: 'room', say: () => "I'd said something here only a few messages ago, so I let others talk." },
-  looping: { place: 'room', miss: 'resting', say: () => "we've gone back and forth a lot with nobody else around, so I'm letting it rest until someone else speaks." },
+  looping: { place: 'room', miss: 'resting', say: () => `I've taken ${LOOP_TURNS} of the last ${LOOP_WINDOW} turns here, so I'm sitting this one out.` },
   superseded: { place: 'room', fold: true, miss: 'moved on', say: () => 'you kept going, so I moved on to your latest.' },
   budget: { place: 'room', tone: 'warn', miss: 'out of calls', say: () => "I'm out of calls for today, so I let it pass." },
   'classify-failed': { place: 'room', tone: 'bad', miss: 'model failed', say: e => `I couldn't size it up. the model call failed (${e.detail}).` },
