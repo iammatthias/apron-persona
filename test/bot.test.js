@@ -832,3 +832,23 @@ test('an unsure model keeps the bot from chiming in, with a margin that says so,
   assert.deepEqual(f.bot.memory.rooms.general.open.confidence, { HIGH: 0, MEDIUM: 0, LOW: 2, UNCERTAIN: 0 });
   assert.deepEqual(g.bot.memory.rooms.general.open.confidence, { HIGH: 0, MEDIUM: 1, LOW: 0, UNCERTAIN: 0 });
 });
+test('a state.json from before this slice (version-1 personality, day buckets, no tensions or revisions) loads and saves in the new shapes', () => {
+  const bucket = { topics: { code: { messages: 3, engaged: 0, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] };
+  const legacy = {
+    personality: { version: 1, at: 1761700000000, cells: { '2222': 4, '3322': 1.5 } },
+    budget: { day: '2026-10-28', calls: 12 }, spent: { judge: { calls: 12, hedges: 0, retries: 0 } },
+    settings: { persona: 'You are {name}, from before.', paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: true, organic_threshold: .9, norms: { general: 'be kind' }, owner: '' },
+    memory: { rooms: { general: { days: { '2026-10-28': bucket }, weeks: { '2026-10-19': bucket } } }, pages: { general: { day: '2026-10-28', mostly: ['code'], some: [], pace: 'steady', shifts: [] } } },
+  };
+  const { bot, saved } = fixture(undefined, () => structuredClone(legacy));
+  assert.deepEqual(bot.state, { version: 2, cells: { '2222': 4, '3322': 1.5 }, n: 0 });
+  assert.deepEqual(bot.settings, { ...defaults, persona: 'You are {name}, from before.', organic: true, norms: { general: 'be kind' } });
+  assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
+  assert.equal(bot.notes('general'), 'Norms: be kind');
+  bot.save();
+  const written = JSON.parse(saved[0]);
+  assert.deepEqual(written.personality, { version: 2, cells: { '2222': 4, '3322': 1.5 }, n: 0 });
+  assert.deepEqual([written.settings.tensions, written.settings.revisions], [settings.tensions.default(), []]);
+  assert.deepEqual(written.memory, { rooms: {}, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
+  assert.ok(!JSON.stringify(written).includes('"at"') && !JSON.stringify(written).includes('days'));
+});

@@ -46,6 +46,17 @@ export function decision(data) {
 // Counts, not clocks. Behaviour and memory count messages and conversation state; a clock is used only by transport
 // (timeouts, pings, reconnects), by the owner's per-day call cap, and to show times on the portal.
 //
+// How many of a room's last LOOP_WINDOW turns the bot may take before it rests there: a third. A turn of its own is a
+// post, or a draft its sender talked over, except one answering its owner (bot.js keeps the count, and passes 0 for
+// the owner). Six in a row is a longer solo exchange than a regular holds in a public room before someone else joins
+// in; eighteen makes a third the ceiling, which holds however the senders alternate: two peer bots nobody flagged, or
+// one on two accounts, draw six answers, then eight rests, then six, where a count per sender started over whenever
+// anyone else spoke. With a ceiling of half (six of twelve) a pair taking turns is answered four times in five.
+export const LOOP_TURNS = 6, LOOP_WINDOW = 18;
+// How many messages from others follow one of the bot's posts before it may chime in again. One unprompted post in
+// four messages is a regular who pipes up now and then; one in two (the old rule, a wait for the bot's post to stop
+// being the latest) was a second voice in every exchange when one person was doing the talking.
+export const CHIME_EVERY = 4;
 // A sender is alone with the bot when nobody else is among the room's last ALONE messages: a screenful with no one
 // else in it, so a lull doesn't make a soliloquy of the next line.
 export const ALONE = 10;
@@ -149,17 +160,6 @@ export function addressing(s, mention, reply) {
   return mention ? 'mention' : reply ? 'reply' : undefined;
 }
 const gates = { mention: 'reply_mentions', reply: 'reply_replies' };
-// How many of a room's last LOOP_WINDOW turns the bot may take before it rests there: a third. A turn of its own is a
-// post, or a draft its sender talked over, except one answering its owner (bot.js keeps the count, and passes 0 for
-// the owner). Six in a row is a longer solo exchange than a regular holds in a public room before someone else joins
-// in; eighteen makes a third the ceiling, which holds however the senders alternate: two peer bots nobody flagged, or
-// one on two accounts, draw six answers, then eight rests, then six, where a count per sender started over whenever
-// anyone else spoke. With a ceiling of half (six of twelve) a pair taking turns is answered four times in five.
-export const LOOP_TURNS = 6, LOOP_WINDOW = 18;
-// How many messages from others follow one of the bot's posts before it may chime in again. One unprompted post in
-// four messages is a regular who pipes up now and then; one in two (the old rule, a wait for the bot's post to stop
-// being the latest) was a second voice in every exchange when one person was doing the talking.
-export const CHIME_EVERY = 4;
 // Whether the bot responds to one message, and the outcome with the bar that decided it. Before classification (no
 // reply_p) it returns null when the classifier must run, so organic adds no classifier calls: only messages already
 // eligible for learning are considered. A message the bot would otherwise answer or chime in on while it rests is not

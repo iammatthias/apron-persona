@@ -169,7 +169,7 @@ export class Bot {
       if (this.left() < chunks.length + 1) return stage('failed', { count, detail: 'budget' });
       stage('thinking', { count });
       const result = await synthesize(chunks, messages => this.ask('learn', { max_tokens: 6000, messages }, data => data).then(r => r.value));
-      stage('ready', { ...result, at: Date.now() });
+      stage('ready', result);
     })().catch(e => stage('failed', { detail: e.message }));
   }
   get studying() { return ['reading', 'thinking'].includes(this.learning?.stage); }
