@@ -195,6 +195,9 @@ const thinking = {
   traits: x => `<div class="card">${bars(x.personality)}<p class="small" style="margin-top:8px">${escape(x.drift)}</p>${sent(x.sent)}</div>`,
   room: (x, place, d) => `<div class="card"><div class="rtabs">${d.rooms.map(r => `<a href="${back({ view: 'bot', room: r })}#room"${r === d.room ? ' aria-current="page"' : ''}>#${escape(r)}</a>`).join('')}</div>
 ${sent(x.sent || 'nothing yet, so this part is left out.', `sent in #${d.room}`)}${week(x.week)}<div class="sub">${norms(place, d.room, x.norms)}</div></div>`,
+  tensions: (x, place) => `<div class="card">${post(place, '/tensions', `<label>one per line: pole / counter: why neither extreme works<textarea name="tensions" required>${escape(x.tensions)}</textarea></label>
+<div class="bar"><button class="save">save</button><span>${x.tensions.split('\n').length} of 8</span></div>`)}${post(place, '/tensions/reset', '<button class="link">reset to the default tensions</button>')}
+<details><summary>exactly as sent</summary>${sent(x.sent)}</details></div>`,
   rules: x => `<div class="card">${sent(x.sent)}</div>`,
   lines: x => `<div class="card">${sent(x.sent, 'sent when I answer')}${sent(x.chime, 'sent when I chime in')}</div>`,
 };

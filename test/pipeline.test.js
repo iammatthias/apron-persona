@@ -474,7 +474,8 @@ test('how I think shows each prompt part exactly as the bot sends it', async () 
   r.calls[0].answer(judged({ learn: .1 })); r.calls[1].answer(content('yo'));
   await r.settle();
   const sections = thinking(await snapshot(r.bot), 'general').sections, sent = id => sections.find(x => x.id === id).sent;
-  assert.equal(system.content, ['persona', 'traits', 'room', 'rules'].map(sent).join(' '));
+  assert.equal(system.content, ['persona', 'traits', 'room', 'tensions', 'rules'].map(sent).join(' '));
+  assert.ok(sent('tensions').startsWith("You're a participant in this room, not an assistant, so hold each of these in tension; neither end is right. speak ↔ listen: "));
   assert.equal(sent('persona'), 'You are Persona, <odd> & short.');
   assert.equal(sent('room'), 'Norms: no spoilers');
   assert.deepEqual([user.content, sent('lines')].map(x => x.split('\n\n')[1]), [cue, cue]);

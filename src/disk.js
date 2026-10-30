@@ -28,7 +28,8 @@ const state = object({
   // budget.day's calls by role; hedges and retries are among each role's calls.
   spent: map(one(Object.keys(roles)), object({ calls: count, hedges: count, retries: count })),
   settings: object({
-    persona: owner(4000), paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
+    persona: owner(4000), tensions: list(object({ pole: owner(24), counter: owner(24), neither: owner(200) }), 8, 1),
+    paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
     organic: boolean, organic_threshold: number, norms: map(room, owner(1000)), owner: string(/^[\w~.:-]{0,128}$/, 128),
   }),
   memory: object({

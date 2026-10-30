@@ -1,7 +1,7 @@
 import { dailyCap } from './bot.js';
 import { transcript, fold, today } from './transcript.js';
 import { margins, churn } from './events.js';
-import { promptParts, roomPrompt, recall, list } from './settings.js';
+import { promptParts, roomPrompt, recall, list, tensionsForm } from './settings.js';
 import { axes, leanings, LOOP_TURNS, LOOP_WINDOW } from './core.js';
 import { roles } from './models.js';
 import { dayOf } from './memory.js';
@@ -128,7 +128,7 @@ const sample = [{ name: 'ana', content: 'what they said' }, { name: 'you', conte
 // `sent`, exactly as the model gets it for `id`, from the functions the bot builds its prompt with.
 export function bot(s, id) {
   const m = memo(s, id), p = s.status.personality, set = s.settings, from = midnight(s.now);
-  const [persona, style, notes, rules] = promptParts(set, p, s.name, m.notes);
+  const [persona, style, notes, held, rules] = promptParts(set, p, s.name, m.notes);
   const day = s.events.filter(e => e.kind === 'message' && e.at >= from && margins[e.outcome].place === 'room');
   const count = (...outcomes) => day.filter(e => outcomes.includes(e.outcome)).length;
   const pick = (...keys) => Object.fromEntries(keys.map(k => [k, set[k]]));
@@ -142,7 +142,8 @@ export function bot(s, id) {
     { id: 'persona', part: 'prompt', title: 'who I am', why: `the first thing the model reads. {name} becomes ${s.name}.`, sent: persona, persona: set.persona, lesson: lesson(s) },
     { id: 'traits', part: 'prompt', title: 'what the room made me', why: 'learned from the messages I read. not editable: it moves as the room talks.', sent: style, personality: p, drift: drift(p) },
     { id: 'room', part: 'prompt', title: 'what I know about the room', why: "only the room I'm answering in. rebuilt daily from what it talks about, plus your norms.", sent: notes, week: m.week, norms: set.norms[id] ?? '' },
-    { id: 'rules', part: 'prompt', title: 'the fixed rules', why: 'the same in every room. not editable here.', sent: rules },
+    { id: 'tensions', part: 'prompt', title: 'what I hold in tension', why: 'how I carry myself: pairs where neither end is right, each with why. yours to edit, one per line; nothing I learn can touch them.', sent: held, tensions: tensionsForm(set.tensions) },
+    { id: 'rules', part: 'prompt', title: 'the fixed rules', why: 'the boundary, the same in every room. not editable.', sent: rules },
     { id: 'lines', part: 'prompt', title: 'the last lines', why: `then, as its own message, up to the last ${recall.lines} messages of the room's history, oldest first, mine as "you". if history takes over ${recall.wait / 1000}s, the last ${recall.own} I saw myself.`,
       sent: roomPrompt(sample, false), chime: roomPrompt(sample, true) },
   ] };

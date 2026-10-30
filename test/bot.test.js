@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
 import { margins } from '../src/events.js';
-import { settings, guardrails, cue, chime } from '../src/settings.js';
+import { settings, guardrails, cue, chime, tensionsPrompt } from '../src/settings.js';
 import { check, disk, never } from '../src/disk.js';
 import { tally } from '../src/memory.js';
 import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
@@ -13,7 +13,8 @@ import { snapshot } from '../src/http.js';
 import { needs } from '../src/views.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
-const defaults = { persona: settings.persona.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
+const held = tensionsPrompt(settings.tensions.default());
+const defaults = { persona: settings.persona.default(), tensions: settings.tensions.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
@@ -161,7 +162,7 @@ test('a saved persona persists, and a reply sees the room as one named transcrip
   ws.emit({ method: 'message', params: { room_id: 'general', message_id: '13', from: { user_id: 'dave' }, body: { text: 'again @bot_me' } } });
   await bot.queue;
   assert.deepEqual(bodies.at(-1).messages, [
-    { role: 'system', content: `You are Persona, a pirate. Match the room's temperament: so far it's middle of the road on every count. ${guardrails}` },
+    { role: 'system', content: `You are Persona, a pirate. Match the room's temperament: so far it's middle of the road on every count. ${held} ${guardrails}` },
     { role: 'user', content: `Ana B: ship ahoy\ncarol: hey @bot_me\nyou: arr\ndave: again @bot_me\n\n${cue}` },
   ]);
   assert.deepEqual(posts(ws).map(m => m.body.text), ['arr', 'arr']);
@@ -468,12 +469,12 @@ test('room notes are rebuilt on the first use after UTC midnight, byte-stable al
   f.bot.configure({ norms: { general: 'no spoilers' } });
   assert.equal(f.bot.log.list().filter(e => e.kind === 'settings').length, 1);
 });
-test('a reply carries its room notes in the system prompt, before the guardrails', async () => {
+test('a reply carries its room notes in the system prompt, before the tensions and the guardrails', async () => {
   let system;
   const f = connected(async (url, init) => { const body = JSON.parse(init.body); if (body.temperature !== 0) system = body.messages[0].content; return model()(url, init); });
   f.bot.configure({ norms: { general: 'english only' } });
   await deliver(f);
-  assert.equal(system, `${settings.persona.default().split('{name}').join('Persona')} Match the room's temperament: so far it's middle of the road on every count. Norms: english only ${guardrails}`);
+  assert.equal(system, `${settings.persona.default().split('{name}').join('Persona')} Match the room's temperament: so far it's middle of the road on every count. Norms: english only ${held} ${guardrails}`);
 });
 test('saving settings records only the values that changed', () => {
   const { bot } = connected();

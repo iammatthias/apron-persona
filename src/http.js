@@ -97,6 +97,8 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       return `Saved the norms for #${room}`;
     },
     async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
+    async '/tensions'(form) { bot.configure({ tensions: form.get('tensions') }); return 'Saved what I hold in tension'; },
+    async '/tensions/reset'() { bot.configure({ tensions: settings.tensions.default() }); return 'Reset to the default tensions'; },
   };
   return async (req, server) => {
     const url = new URL(req.url), action = actions[url.pathname];

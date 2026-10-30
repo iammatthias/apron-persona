@@ -2,7 +2,7 @@ import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { page } from '../src/page.js';
 import { dashboard } from '../src/dashboard.js';
-import { guardrails, cue, chime, restore } from '../src/settings.js';
+import { guardrails, cue, chime, restore, tensionsPrompt, settings } from '../src/settings.js';
 const t = Date.UTC(2026, 9, 28, 14, 31), at = m => t - m * 60000;
 const status = { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 3 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 }, server: { host: 'h', user_id: 'bot_x', agent: 'a/9' } };
 const events = [
@@ -29,6 +29,7 @@ const s = {
 };
 const view = (v, extra = {}, room = 'general') => dashboard({ ...s, ...extra }, { view: v, room });
 const scripts = html => html.match(/<script>/g).length;
+const escapeHtml = s => s.replace(/[&<>"]/g, c => `&#${c.charCodeAt(0)};`);
 test('the strip on every page says how the link is, what the day cost and did, and pauses in one tap', () => {
   for (const v of ['now', 'room', 'bot', 'plumbing']) {
     const html = view(v);
@@ -90,7 +91,7 @@ test('hostile text is escaped on every view', () => {
 });
 test('the bot is how it thinks: the gate, then each prompt part exactly as sent, with a table of contents', () => {
   const html = view('bot');
-  assert.ok(html.includes('<nav class="toc"><b>the gate</b><a href="#answer">1 do I answer when asked?</a><a href="#chime">2 do I speak up unprompted?</a><b>the prompt, in order</b><a href="#persona">3 who I am</a><a href="#traits">4 what the room made me</a><a href="#room">5 what I know about the room</a><a href="#rules">6 the fixed rules</a><a href="#lines">7 the last lines</a></nav>'));
+  assert.ok(html.includes('<nav class="toc"><b>the gate</b><a href="#answer">1 do I answer when asked?</a><a href="#chime">2 do I speak up unprompted?</a><b>the prompt, in order</b><a href="#persona">3 who I am</a><a href="#traits">4 what the room made me</a><a href="#room">5 what I know about the room</a><a href="#tensions">6 what I hold in tension</a><a href="#rules">7 the fixed rules</a><a href="#lines">8 the last lines</a></nav>'));
   assert.ok(html.includes('<label class="tick"><input type="checkbox" name="reply_mentions" value="on" checked><input type="hidden" name="reply_mentions" value="off">answer when mentioned</label>'));
   assert.ok(html.includes('<label>reply bar<input type="number" name="reply_threshold" min="0.5" max="0.99" step="0.05" value="0.70" required></label>\n<label>my owner\'s user id, never rested on<input name="owner" value="" placeholder="blank: guessed from my own id" maxlength="128"></label>\n<div class="bar"><button class="save">save</button><span>today: 1 answered, 2 not</span></div>'));
   assert.ok(html.includes('<label>chime-in bar<input type="number" name="organic_threshold" min="0.5" max="0.99" step="0.05" value="0.90" required></label>\n<div class="bar"><button class="save">save</button><span>today: 0 chime-ins, 1 held back</span></div>'));
@@ -101,6 +102,9 @@ test('the bot is how it thinks: the gate, then each prompt part exactly as sent,
   assert.ok(html.includes('<div class="rtabs"><a href="/?view=bot&#38;room=general#room" aria-current="page">#general</a><a href="/?view=bot&#38;room=random#room">#random</a></div>\n<div class="sent"><small>sent in #general</small>In #general lately: mostly code. Norms: &#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</div>'));
   assert.ok(view('bot', {}, 'random').includes('<div class="sent"><small>sent in #random</small>nothing yet, so this part is left out.</div>'));
   assert.ok(html.includes(`<div class="sent"><small>sent</small>${guardrails}</div>`));
+  assert.ok(html.includes(`<form method="post" action="/tensions"><input type="hidden" name="view" value="bot"><input type="hidden" name="room" value="general"><label>one per line: pole / counter: why neither extreme works<textarea name="tensions" required>speak / listen: pipe up when you have something to add and let the room talk when you don't. Nobody here offers help, recaps the conversation or signs off.\nsure / unsure: `));
+  assert.ok(html.includes('<div class="bar"><button class="save">save</button><span>5 of 8</span></div></form><form method="post" action="/tensions/reset">'));
+  assert.ok(html.includes(`<details><summary>exactly as sent</summary><div class="sent"><small>sent</small>${escapeHtml(tensionsPrompt(settings.tensions.default()))}</div></details></div></div></section><section class="stage" id="rules">`));
   assert.ok(html.includes(`<div class="sent"><small>sent when I answer</small>ana: what they said\nyou: what I said\n\n${cue}</div><div class="sent"><small>sent when I chime in</small>ana: what they said\nyou: what I said\n\n${chime}</div>`));
   assert.ok(html.includes('<div class="sub" id="lesson"><details><summary>redraft from history</summary><form method="post" action="/learn"><input type="hidden" name="view" value="bot">'));
 });

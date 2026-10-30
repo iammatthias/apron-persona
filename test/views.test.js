@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { strip, tabs, needs, calls, now, room, bot, plumbing } from '../src/views.js';
-import { restore, guardrails, cue, chime } from '../src/settings.js';
+import { restore, guardrails, cue, chime, tensionsPrompt, settings } from '../src/settings.js';
 const t = Date.UTC(2026, 9, 28, 14, 31), at = m => t - m * 60000;
 const msg = (m, room, outcome, extra = {}) => ({ at: at(m), kind: 'message', room, message_id: `m${m}`, from: 'u_ben', name: 'ben', outcome, ...extra });
 const events = [
@@ -134,17 +134,20 @@ test('how I think lists the gate, then each prompt part as it is sent, for the c
   const view = bot({ ...s, settings: { ...s.settings, organic: true } }, 'general');
   assert.deepEqual(view.sections.map(x => [x.id, x.part, x.title]), [
     ['answer', 'gate', 'do I answer when asked?'], ['chime', 'gate', 'do I speak up unprompted?'], ['persona', 'prompt', 'who I am'], ['traits', 'prompt', 'what the room made me'],
-    ['room', 'prompt', 'what I know about the room'], ['rules', 'prompt', 'the fixed rules'], ['lines', 'prompt', 'the last lines']]);
-  const [answer, chimes, persona, traits, notes, rules, lines] = view.sections;
+    ['room', 'prompt', 'what I know about the room'], ['tensions', 'prompt', 'what I hold in tension'], ['rules', 'prompt', 'the fixed rules'], ['lines', 'prompt', 'the last lines']]);
+  const [answer, chimes, persona, traits, notes, held, rules, lines] = view.sections;
   assert.deepEqual([answer.settings, answer.today], [{ reply_mentions: true, reply_replies: true, reply_threshold: .7, owner: '' }, { answered: 1, not: 3 }]);
   assert.deepEqual([chimes.settings, chimes.today], [{ organic: true, organic_threshold: .9 }, { chimed: 0, held: 0 }]);
   assert.deepEqual([persona.persona, persona.sent, persona.lesson], ['You are {name}.', 'You are P.', null]);
   assert.equal(traits.sent, "Match the room's temperament: it runs a little warmer than a typical chat.");
   assert.deepEqual([notes.sent, notes.norms], ['In #general lately: mostly code. Norms: be kind', 'be kind']);
+  assert.deepEqual([held.sent, held.tensions.split('\n').length], [tensionsPrompt(settings.tensions.default()), 5]);
   assert.equal(rules.sent, guardrails);
   assert.deepEqual([lines.sent, lines.chime], [`ana: what they said\nyou: what I said\n\n${cue}`, `ana: what they said\nyou: what I said\n\n${chime}`]);
   assert.equal(lines.why, 'then, as its own message, up to the last 20 messages of the room\'s history, oldest first, mine as "you". if history takes over 3s, the last 8 I saw myself.');
   assert.equal(bot(s, 'builds').sections[4].sent, '');
+  const edited = bot({ ...s, settings: { ...s.settings, tensions: [{ pole: 'a', counter: 'b', neither: 'c.' }] } }, 'general').sections[5];
+  assert.deepEqual([edited.sent, edited.tensions], ["You're a participant in this room, not an assistant, so hold each of these in tension; neither end is right. a ↔ b: c.", 'a / b: c.']);
 });
 test('plumbing logs connects, drops and errors newest first, and lists what was ignored elsewhere', () => {
   const view = plumbing(s);

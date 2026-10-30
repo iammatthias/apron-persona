@@ -165,3 +165,17 @@ test('norms save per watched room, show in the room notes, and stay out of the l
   await post(admin, '/norms', { room_id: 'general', norms: '' });
   assert.deepEqual(bot.settings.norms, {});
 });
+test('the owner rewrites the tensions one per line and resets them; a malformed line saves nothing', async () => {
+  const { bot, admin } = listeners();
+  const { settings } = await import('../src/settings.js');
+  assert.equal((await post(admin, '/tensions', { tensions: 'quick / careful: answer fast, but not wrong.\n\nloud / quiet: say less than you could.' })).headers.get('Location'), '/?view=bot&room=general&ok=Saved%20what%20I%20hold%20in%20tension');
+  assert.deepEqual(bot.settings.tensions, [{ pole: 'quick', counter: 'careful', neither: 'answer fast, but not wrong.' }, { pole: 'loud', counter: 'quiet', neither: 'say less than you could.' }]);
+  const html = await (await get(admin, '/?view=bot')).text();
+  assert.ok(html.includes('<textarea name="tensions" required>quick / careful: answer fast, but not wrong.\nloud / quiet: say less than you could.</textarea>'));
+  assert.ok(html.includes("<small>sent</small>You're a participant in this room, not an assistant, so hold each of these in tension; neither end is right. quick ↔ careful: answer fast, but not wrong. loud ↔ quiet: say less than you could.</div>"));
+  assert.ok((await (await get(admin, '/?view=room')).text()).includes('you rewrote what I hold in tension'));
+  assert.equal((await post(admin, '/tensions', { tensions: 'no colon here' })).headers.get('Location'), `/?view=bot&room=general&error=${encodeURIComponent('each tension is a line like "speak / listen: why neither extreme works", 1 to 8 of them, poles up to 24 characters and the line up to 200')}`);
+  assert.equal(bot.settings.tensions.length, 2);
+  assert.equal((await post(admin, '/tensions/reset', {})).headers.get('Location'), '/?view=bot&room=general&ok=Reset%20to%20the%20default%20tensions');
+  assert.deepEqual(bot.settings.tensions, settings.tensions.default());
+});

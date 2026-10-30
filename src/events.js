@@ -89,6 +89,7 @@ const toggled = (on, off) => v => v ? on : off;
 // What each changed setting reads as in the transcript break.
 const changes = {
   persona: () => 'you rewrote who I am',
+  tensions: () => 'you rewrote what I hold in tension',
   paused: toggled('you paused me', 'you resumed me'),
   reply_mentions: toggled('you let me answer mentions', 'you stopped me answering mentions'),
   reply_replies: toggled('you let me answer replies to me', 'you stopped me answering replies to me'),
