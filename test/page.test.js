@@ -18,12 +18,12 @@ const events = [
   { at: at(3), kind: 'message', room: 'elsewhere-room', message_id: '6', from: 'u_zed', name: 'zed<b>', outcome: 'other-room' },
   { at: at(2), kind: 'settings', keys: ['reply_threshold'], reply_threshold: .75 },
 ];
-const week = { days: ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]] };
+const blocks = { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]] };
 const s = {
   name: 'P<i>', now: t, rooms: ['general', 'random'], events, limit: '40', status, spent: { judge: { calls: 2, hedges: 1, retries: 0 }, compose: { calls: 1, hedges: 0, retries: 0 } },
   settings: restore({ settings: { persona: 'canary-persona </textarea><script>x</script> {name}', norms: { general: '</textarea><script>n</script> be kind' } } }),
   lastError: null, learning: null, preview: null,
-  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: </textarea><script>n</script> be kind', week }, { id: 'random', notes: '', week: { days: week.days, rows: [] } }],
+  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: </textarea><script>n</script> be kind', blocks }, { id: 'random', notes: '', blocks: { labels: ['now'], rows: [] } }],
   details: { url: 'wss://h/', since: at(26), latency: 45, server: { agent: 'a/9', capabilities: ['history', 'edit'], welcome: '<b>hi</b>' }, you: { user_id: 'bot_x', name: 'P', roles: ['bot'], avatar: 'https://h/a.png' } },
   posts: [{ room_id: 'general', message_id: '9', log_id: String(at(7)), body: { text: '<script>said</script>' } }],
 };
@@ -70,11 +70,11 @@ test('a room is its transcript with reasons in the margin, quiet runs folded, an
 test('a room\'s side column holds only its notes, topics, norms and posts', () => {
   const html = view('room');
   assert.ok(html.includes('<h2>what I believe about #general</h2><div class="card"><p class="small">In #general lately: mostly code. Norms: &#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</p>'));
-  assert.ok(html.includes('<table class="week"><thead><tr><th></th><th title="2026-10-22">22</th><th title="2026-10-23">23</th><th title="2026-10-24">24</th><th title="2026-10-25">25</th><th title="2026-10-26">26</th><th title="2026-10-27">27</th><th title="2026-10-28">28</th></tr></thead><tbody><tr><th>code</th><td class="z">·</td><td>1</td><td class="z">·</td><td>2</td><td class="z">·</td><td class="z">·</td><td>3</td></tr></tbody></table>'));
+  assert.ok(html.includes('<p class="small faint">rebuilt every 50 messages from the counts below. this goes into my prompt here.</p><details><summary>last 7 blocks by topic, 50 messages each</summary><table class="week"><thead><tr><th></th><th title="block 3">3</th><th title="block 4">4</th><th title="block 5">5</th><th title="block 6">6</th><th title="block 7">7</th><th title="block 8">8</th><th title="the block being filled">now</th></tr></thead><tbody><tr><th>code</th><td class="z">·</td><td>1</td><td class="z">·</td><td>2</td><td class="z">·</td><td class="z">·</td><td>3</td></tr></tbody></table></details>'));
   assert.ok(html.includes('<form method="post" action="/norms"><input type="hidden" name="view" value="room"><input type="hidden" name="room" value="general"><input type="hidden" name="room_id" value="general"><label>norms for #general, which I\'ll honour<textarea class="short" name="norms" maxlength="1000">&#60;/textarea&#62;&#60;script&#62;n&#60;/script&#62; be kind</textarea></label>\n<div class="bar"><button class="save">save</button><span>37 of 1000</span></div></form>'));
   assert.ok(html.includes('<h2>what I\'ve said here <span>1</span></h2><details><summary>show all, with delete</summary><article><p>&#60;script&#62;said&#60;/script&#62;</p><form method="post" action="/delete"><input type="hidden" name="view" value="room"><input type="hidden" name="room" value="general"><span>2026-10-28 14:24 UTC</span><input type="hidden" name="room_id" value="general"><input type="hidden" name="message_id" value="9"><button class="del">delete</button></form></article></details>'));
   const random = view('room', { posts: { error: 'not-connected' } }, 'random');
-  assert.ok(random.includes("<p class=\"small\">I can't read my history right now (not-connected).</p>") && random.includes('<p class="small">nothing to note yet.</p>') && random.includes('no messages counted in the last 7 days.'));
+  assert.ok(random.includes("<p class=\"small\">I can't read my history right now (not-connected).</p>") && random.includes('<p class="small">nothing to note yet.</p>') && random.includes('no messages counted yet.'));
   assert.ok(!random.includes('In #general lately'));
 });
 test('hostile text is escaped on every view', () => {

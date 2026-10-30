@@ -1,5 +1,5 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
-import { axes, topics } from './core.js';
+import { axes, topics, BLOCKS, FOLDS } from './core.js';
 import { roles } from './models.js';
 // What never reaches DATA_DIR, and why. The schemas below leave no slot for any of it.
 export const never = {
@@ -18,10 +18,12 @@ const owner = max => string(/^[^]*$/, max);
 const object = fields => ({ fields }), map = (key, value) => ({ key, value }), nullable = of => ({ nullable: of });
 const list = (of, max, min = 0) => ({ list: of, max, min }), one = xs => v => xs.includes(v);
 const room = string(/^\S+$/, 64);
-const bucket = object({
+// One block of a room's memory: counts per topic, and how many learned messages leaned how far. A fold spans FOLD blocks.
+const block = object({
   topics: map(one(topics), object({ messages: count, engaged: count, replies: count, chimes: count })),
   learned: count, lean: list(number, 4, 4),
 });
+const fold = object({ ...block.fields, span: count });
 const state = object({
   // n is how many lessons the cells have taken in; the cells fade by that count, never by a clock.
   personality: object({ version: one([2]), cells: map(string(/^[0-4]{4}$/, 4), number), n: count }),
@@ -36,12 +38,10 @@ const state = object({
     organic: boolean, organic_threshold: number, norms: map(room, owner(1000)), owner: string(/^[\w~.:-]{0,128}$/, 128),
   }),
   memory: object({
-    rooms: map(room, object({ days: map(date, bucket), weeks: map(date, bucket) })),
-    // A digest, not text: onepager() writes the words each time from these labels and the owner's norms.
-    pages: map(room, object({
-      day: date, mostly: list(one(topics), 2), some: list(one(topics), 2), pace: nullable(one(['busier', 'quieter', 'steady'])),
-      shifts: list(object({ since: date, axis: one(axes), up: boolean }), axes.length),
-    })),
+    rooms: map(room, object({ open: block, blocks: list(block, BLOCKS), folds: list(fold, FOLDS), closed: count })),
+    // A digest, not text: onepager() writes the words each time from these labels and the owner's norms. closed names
+    // the block it was built after.
+    pages: map(room, object({ closed: count, mostly: list(one(topics), 2), some: list(one(topics), 2), shifts: list(object({ axis: one(axes), up: boolean }), axes.length) })),
   }),
 });
 const status = object({

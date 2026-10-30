@@ -2,7 +2,7 @@ import { named, conversing, classify, decision, fresh, migrate, learn, seed, per
 import { settings, restore, systemPrompt, roomPrompt, line, recall, reason, REVISIONS } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
-import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
+import { empty, tally, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
 import * as models from './models.js';
 // A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
@@ -10,6 +10,8 @@ const DEADLINE = 25000, TYPING = 6000;
 // Failures that are outcomes in their own right, with no detail to add.
 const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
+// The UTC day a time falls on, for the owner's per-day call cap and its display.
+export const dayOf = now => new Date(now).toISOString().slice(0, 10);
 // DAILY_CALLS as a whole number of calls, or null for no cap when it is unset, blank or not a number.
 export function dailyCap(value) {
   const n = Number(String(value ?? '').trim() || NaN);
@@ -30,7 +32,7 @@ export class Bot {
     // A state.json from before the counter has none, so the day's earlier calls stay unsorted.
     this.spent = ok('spent', saved.spent) ? saved.spent : {};
     this.settings = restore(saved);
-    this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
+    this.memory = ok('memory', saved.memory) ? saved.memory : empty();
     // In memory only, bounded by count: the last CONTEXT lines seen, the last SEEN distinct texts read, and per room what
     // was heard by position (hear()).
     this.context = []; this.seen = new Set(); this.heard = new Map();
@@ -49,7 +51,7 @@ export class Bot {
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
   save() {
-    try { this.store.save({ personality: this.state, budget: this.budget, spent: this.spent, settings: this.settings, memory: roll(this.memory, dayOf(Date.now())) }); }
+    try { this.store.save({ personality: this.state, budget: this.budget, spent: this.spent, settings: this.settings, memory: this.memory }); }
     catch { this.fail('state-refused'); }
     this.dirty = false;
   }
@@ -264,7 +266,7 @@ export class Bot {
         .then(({ posted, respond, topic, ...result }) => {
           const e = { ...seen, ...result };
           this.record('message', { ...e, text: text(e.addressed || respond) });
-          if (topic) { tally(this.memory, p.room_id, dayOf(Date.now()), { topic, engaged: !!e.addressed, outcome: e.outcome, style: e.style }); this.dirty = true; }
+          if (topic) { tally(this.memory, p.room_id, { topic, engaged: !!e.addressed, outcome: e.outcome, style: e.style }); this.dirty = true; }
           if (posted) this.record('posted', { room: p.room_id, ...posted });
         }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
@@ -285,7 +287,7 @@ export class Bot {
   }
   // Calls left today. spent sorts the same day's calls by role: every request, and which of them were hedges or retries.
   left() {
-    const day = new Date().toISOString().slice(0, 10);
+    const day = dayOf(Date.now());
     if (this.budget.day !== day) { this.budget = { day, calls: 0 }; this.spent = {}; }
     // No cap unless the owner sets one: the key allows only free models, and OpenRouter's own rate limit answers 429.
     const cap = dailyCap(this.env.DAILY_CALLS);
@@ -497,11 +499,12 @@ export class Bot {
       content: m.body.text.slice(0, 1000),
     }));
   }
-  // A room's notes for the prompt. Its digest is rebuilt on the first use after UTC midnight and kept all day, in
-  // memory and state.json, so the prompt stays byte-stable between turns; the norms are the owner's current words.
-  notes(room, now = Date.now()) {
-    const today = dayOf(now), pages = this.memory.pages;
-    if (pages[room]?.day !== today) { roll(this.memory, today); pages[room] = digest(this.memory.rooms[room], today); this.dirty = true; }
+  // A room's notes for the prompt. Its digest is rebuilt on the first use after a block closes there and kept until
+  // the next closes, in memory and state.json, so the prompt stays byte-stable between turns; the norms are the
+  // owner's current words.
+  notes(room) {
+    const r = this.memory.rooms[room], pages = this.memory.pages;
+    if (pages[room]?.closed !== (r?.closed ?? 0)) { pages[room] = digest(r); this.dirty = true; }
     return onepager(room, pages[room], this.settings.norms[room]);
   }
   // What the server's greeting and the auth result said, for the private page.

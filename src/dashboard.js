@@ -1,7 +1,7 @@
 import { escape, doc } from './page.js';
 import * as model from './views.js';
 import { secs } from './events.js';
-import { axes } from './core.js';
+import { axes, BLOCK } from './core.js';
 const css = `:root{color-scheme:light dark;--fg:#1d1c1a;--muted:#7b776f;--faint:#aca79c;--bg:#f7f5f0;--paper:#fffefa;--line:#e3dfd5;--ok:#2f7a55;--warn:#a1650a;--bad:#b3261e;--me:#eef3ee}
 @media(prefers-color-scheme:dark){:root{--fg:#ebe8e0;--muted:#9b978e;--faint:#635f58;--bg:#131211;--paper:#1a1917;--line:#2d2b27;--ok:#7cc79f;--warn:#e3ab57;--bad:#f08a80;--me:#1b261f}}
 *{box-sizing:border-box}
@@ -147,11 +147,11 @@ function now(m, place) {
   return `<div class="now"><div>${needs(m.needs)}${cards ? `<div class="cards" id="cards" data-live>${cards}</div>` : ''}</div>
 <aside><h2>the bot <a href="/?view=bot">tune</a></h2><div class="card botcard"><p class="persona">${escape(m.bot.persona)}</p>${bars(m.bot.personality)}<p class="small">${escape(m.bot.drift)}</p><p class="small">${escape(m.bot.triggers)}</p></div></aside></div>`;
 }
-function week({ days, rows: topics }) {
-  if (!topics.length) return '<p class="small">no messages counted in the last 7 days.</p>';
-  const head = days.map(d => `<th title="${d}">${+d.slice(8)}</th>`).join('');
+function blocks({ labels, rows: topics }) {
+  if (!topics.length) return '<p class="small">no messages counted yet.</p>';
+  const head = labels.map(l => `<th title="${l === 'now' ? 'the block being filled' : `block ${l}`}">${l}</th>`).join('');
   const body = topics.map(([t, n]) => `<tr><th>${escape(t)}</th>${n.map(x => x ? `<td>${x}</td>` : '<td class="z">·</td>').join('')}</tr>`).join('');
-  return `<details><summary>last 7 days by topic</summary><table class="week"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></details>`;
+  return `<details><summary>last ${plural(labels.length, 'block')} by topic, ${BLOCK} messages each</summary><table class="week"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></details>`;
 }
 const norms = (place, id, text) => post(place, '/norms', `<input type="hidden" name="room_id" value="${escape(id)}"><label>norms for #${escape(id)}, which I'll honour<textarea class="short" name="norms" maxlength="1000">${escape(text)}</textarea></label>
 <div class="bar"><button class="save">save</button><span>${text.length} of 1000</span></div>`);
@@ -160,7 +160,7 @@ function room(m, place, events) {
     : m.posts.list.length ? `<details><summary>show all, with delete</summary>${m.posts.list.map(p => `<article><p>${escape(p.text)}</p>${post(place, '/delete', `<span>${stamp(p.at).slice(0, 16)} UTC</span><input type="hidden" name="room_id" value="${escape(m.id)}"><input type="hidden" name="message_id" value="${escape(p.message_id)}"><button class="del">delete</button>`)}</article>`).join('')}</details>` : '<p class="small">nothing yet.</p>';
   return `<div class="roomv"><div><h2>#${escape(m.id)} through my eyes</h2><p class="jump small"><a href="#rail">what I believe about #${escape(m.id)}, its norms, my posts here</a></p>
 <div class="chat" data-room="${escape(m.id)}" data-since="${events.at(-1)?.at ?? 0}">${rows(m.rows, place) || '<p class="empty">nothing here since I started.</p>'}</div></div>
-<aside class="rail" id="rail"><section><h2>what I believe about #${escape(m.id)}</h2><div class="card"><p class="small">${m.notes ? escape(m.notes) : 'nothing to note yet.'}</p><p class="small faint">rebuilt daily from the counts below. this goes into my prompt here.</p>${week(m.week)}</div></section>
+<aside class="rail" id="rail"><section><h2>what I believe about #${escape(m.id)}</h2><div class="card"><p class="small">${m.notes ? escape(m.notes) : 'nothing to note yet.'}</p><p class="small faint">rebuilt every ${BLOCK} messages from the counts below. this goes into my prompt here.</p>${blocks(m.blocks)}</div></section>
 <section><h2>norms for #${escape(m.id)}</h2><div class="card">${norms(place, m.id, m.norms)}</div></section>
 <section class="said"><h2>what I've said here <span>${m.posts.list.length}</span></h2>${said}</section></aside></div>`;
 }
@@ -197,7 +197,7 @@ const thinking = {
 ${revisions(x.revisions, place)}<div class="sub" id="lesson">${lessons[x.lesson?.stage ?? 'none'](x.lesson, place, d)}</div></div>`,
   traits: x => `<div class="card">${bars(x.personality)}<p class="small" style="margin-top:8px">${escape(x.drift)}</p>${sent(x.sent)}</div>`,
   room: (x, place, d) => `<div class="card"><div class="rtabs">${d.rooms.map(r => `<a href="${back({ view: 'bot', room: r })}#room"${r === d.room ? ' aria-current="page"' : ''}>#${escape(r)}</a>`).join('')}</div>
-${sent(x.sent || 'nothing yet, so this part is left out.', `sent in #${d.room}`)}${week(x.week)}<div class="sub">${norms(place, d.room, x.norms)}</div></div>`,
+${sent(x.sent || 'nothing yet, so this part is left out.', `sent in #${d.room}`)}${blocks(x.blocks)}<div class="sub">${norms(place, d.room, x.norms)}</div></div>`,
   tensions: (x, place) => `<div class="card">${post(place, '/tensions', `<label>one per line: pole / counter: why neither extreme works<textarea name="tensions" required>${escape(x.tensions)}</textarea></label>
 <div class="bar"><button class="save">save</button><span>${x.tensions.split('\n').length} of 8</span></div>`)}${post(place, '/tensions/reset', '<button class="link">reset to the default tensions</button>')}
 <details><summary>exactly as sent</summary>${sent(x.sent)}</details></div>`,

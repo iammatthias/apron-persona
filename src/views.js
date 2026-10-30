@@ -1,13 +1,12 @@
-import { dailyCap } from './bot.js';
+import { dailyCap, dayOf } from './bot.js';
 import { transcript, fold, today } from './transcript.js';
 import { margins, churn } from './events.js';
 import { promptParts, roomPrompt, recall, list, tensionsForm } from './settings.js';
-import { axes, leanings, LOOP_TURNS, LOOP_WINDOW, LEARN_EVERY } from './core.js';
+import { axes, leanings, LOOP_TURNS, LOOP_WINDOW, LEARN_EVERY, BLOCK } from './core.js';
 import { roles } from './models.js';
-import { dayOf } from './memory.js';
 // The admin portal's view models: plain data computed from one snapshot of the bot, which the dashboard renders.
 // A snapshot is { name, now, rooms, events, status, spent, limit, settings, details, lastError, learning, preview,
-// memory, posts }: memory holds each watched room's { id, notes, week }, and posts is the bot's live posts or { error }.
+// memory, posts }: memory holds each watched room's { id, notes, blocks }, and posts is the bot's live posts or { error }.
 const HOUR = 3600000, FLAKY = 3;
 const plural = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 const midnight = now => new Date(now).setUTCHours(0, 0, 0, 0);
@@ -113,7 +112,7 @@ export const posted = (s, id, message_id) => rowsOf(s, id).filter(r => r.kind ==
 export function room(s, id) {
   const m = memo(s, id), rows = rowsOf(s, id);
   const posts = s.posts.error ? { error: s.posts.error, list: [] } : { error: null, list: s.posts.filter(p => p.room_id === id).map(p => ({ message_id: p.message_id, at: Number(p.log_id), text: p.body.text })) };
-  return { id, rows: fold(rows), notes: m.notes, week: m.week, norms: s.settings.norms[id] ?? '', posts };
+  return { id, rows: fold(rows), notes: m.notes, blocks: m.blocks, norms: s.settings.norms[id] ?? '', posts };
 }
 // A history job's stage for the persona section: null, or where it reads, how far it got and, once ready, the proposal
 // beside the traits now and after.
@@ -143,7 +142,7 @@ export function bot(s, id) {
       today: { chimed: count('chimed-in'), held: count('held-back', 'nothing-to-add', 'spoke-last') } },
     { id: 'persona', part: 'prompt', title: 'who I am', why: `the first thing the model reads. {name} becomes ${s.name}.`, sent: persona, persona: set.persona, lesson: lesson(s), revisions: history(set.revisions) },
     { id: 'traits', part: 'prompt', title: 'what the room made me', why: 'learned from the messages I read. not editable: it moves as the room talks.', sent: style, personality: p, drift: drift(p) },
-    { id: 'room', part: 'prompt', title: 'what I know about the room', why: "only the room I'm answering in. rebuilt daily from what it talks about, plus your norms.", sent: notes, week: m.week, norms: set.norms[id] ?? '' },
+    { id: 'room', part: 'prompt', title: 'what I know about the room', why: `only the room I'm answering in. rebuilt every ${BLOCK} messages from what it talks about, plus your norms.`, sent: notes, blocks: m.blocks, norms: set.norms[id] ?? '' },
     { id: 'tensions', part: 'prompt', title: 'what I hold in tension', why: 'how I carry myself: pairs where neither end is right, each with why. yours to edit, one per line; nothing I learn can touch them.', sent: held, tensions: tensionsForm(set.tensions) },
     { id: 'rules', part: 'prompt', title: 'the fixed rules', why: 'the boundary, the same in every room. not editable.', sent: rules },
     { id: 'lines', part: 'prompt', title: 'the last lines', why: `then, as its own message, up to the last ${recall.lines} messages of the room's history, oldest first, mine as "you". if history takes over ${recall.wait / 1000}s, the last ${recall.own} I saw myself.`,

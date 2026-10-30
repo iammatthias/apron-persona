@@ -55,6 +55,15 @@ export const SEEN = 64;
 // The last CONTEXT lines the bot saw itself, across rooms, for a reply when history takes too long: enough to answer
 // from, few enough that nothing lingers.
 export const CONTEXT = 12;
+// Room memory closes a block every BLOCK messages it counted there: about one lively evening, so the room notes move
+// often enough to follow the room and rarely enough to stay byte-stable across a conversation.
+export const BLOCK = 50;
+// The last BLOCKS closed blocks are kept whole (700 messages): enough recent detail to compare the latest few against.
+export const BLOCKS = 14;
+// Older blocks fold FOLD at a time, and FOLDS folds are kept (6,000 messages): a long, coarse run of the room's past.
+export const FOLD = 10, FOLDS = 12;
+// The digest reads the last RECENT closed blocks (200 messages) as "lately", against everything older.
+export const RECENT = 4;
 // How many lessons it takes for a lesson to fade to half its weight. Forgetting is by intake, never by the calendar: a
 // quiet room keeps what it taught. 200 means a room that changes its tone retrains the bot within a few hundred
 // learned messages, while one odd evening of twenty can't swing it; the ten-lesson seed and the ten-lesson neutral

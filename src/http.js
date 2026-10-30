@@ -2,7 +2,7 @@ import { page } from './page.js';
 import { dashboard, row, views, roomOf, viewOf } from './dashboard.js';
 import { after, posted } from './views.js';
 import { settings } from './settings.js';
-import { week, dayOf } from './memory.js';
+import { recent } from './memory.js';
 // Never framed, so a hostile page can't overlay the admin forms and trick a click.
 const html = body => new Response(body, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'X-Frame-Options': 'DENY', 'Content-Security-Policy': "frame-ancestors 'none'", 'X-Content-Type-Options': 'nosniff' } });
 const missing = () => new Response('Not found', { status: 404 });
@@ -43,11 +43,11 @@ function stream(log, signal, every) {
 }
 // One snapshot of the bot for the dashboard's view models; posts reads the bot's live posts from Apron.
 export async function snapshot(bot, { posts = false } = {}) {
-  const now = Date.now(), today = dayOf(now);
+  const now = Date.now();
   return {
     name: bot.name, now, rooms: bot.rooms, unavailable: Object.fromEntries(bot.unavailable), events: bot.log.list(), status: bot.status(), spent: bot.spent, limit: bot.env.DAILY_CALLS,
     settings: bot.settings, details: bot.details(), lastError: bot.lastError, learning: bot.learning, preview: bot.learning?.stage === 'ready' ? bot.preview() : null,
-    memory: bot.rooms.map(id => ({ id, notes: bot.notes(id), week: week(bot.memory, id, today) })),
+    memory: bot.rooms.map(id => ({ id, notes: bot.notes(id), blocks: recent(bot.memory, id) })),
     posts: posts ? await bot.posts().catch(e => ({ error: e.message })) : [],
   };
 }

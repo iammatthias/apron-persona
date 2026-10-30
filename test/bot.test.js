@@ -1,7 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
-import { ALONE, FOLLOWUP, LEARN_EVERY, CONTEXT, SEEN } from '../src/core.js';
+import { ALONE, FOLLOWUP, LEARN_EVERY, CONTEXT, SEEN, BLOCK } from '../src/core.js';
 import { margins } from '../src/events.js';
 import { settings, guardrails, cue, chime, tensionsPrompt } from '../src/settings.js';
 import { check, disk, never } from '../src/disk.js';
@@ -444,7 +444,7 @@ test('a welcome chime-in with nothing specific to add stays quiet and keeps no t
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).point_p, .42);
 });
-test('the room memory counts only messages it classified, by day and topic, with no extra classifier call', async () => {
+test('the room memory counts only messages it classified, by block and topic, with no extra classifier call', async () => {
   let calls = 0;
   const answer = model({ scores: { reply: .95, point: .95, topic: 'deploys', warmth: 'high' } });
   const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++calls; return answer(url, init); });
@@ -454,24 +454,24 @@ test('the room memory counts only messages it classified, by day and topic, with
     outcomes.push((await deliver(f, params, text))[0].outcome);
   assert.deepEqual(outcomes, ['chimed-in', 'duplicate', 'rate-limited', 'replied', 'other-room', 'from-bot']);
   assert.equal(calls, 2);
-  const today = new Date().toISOString().slice(0, 10);
-  assert.deepEqual(f.bot.memory, { rooms: { general: { days: { [today]: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0] } }, weeks: {} } }, pages: { general: { day: today, mostly: [], some: [], pace: null, shifts: [] } } });
+  assert.deepEqual(f.bot.memory, { rooms: { general: { open: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0] }, blocks: [], folds: [], closed: 0 } }, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
   const failed = connected(model({ status: 500 }));
   assert.equal((await deliver(failed))[0].outcome, 'replied');
   assert.deepEqual(failed.bot.memory.rooms, {});
 });
-test('room notes are rebuilt on the first use after UTC midnight, byte-stable all day, and follow the norms at once', async () => {
+test('room notes are rebuilt when a block closes, byte-stable while one fills, and follow the norms at once', async () => {
   const f = connected(model());
-  const day = (date, messages) => ({ [date]: { topics: { code: { messages, engaged: 0, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] } });
-  f.bot.memory = { rooms: { general: { days: { ...day('2026-10-28', 6), ...day('2026-10-20', 6) }, weeks: {} } }, pages: {} };
-  const morning = Date.UTC(2026, 9, 29, 0, 5), night = Date.UTC(2026, 9, 29, 23, 55), tomorrow = Date.UTC(2026, 9, 30, 0, 1);
-  const first = f.bot.notes('general', morning);
-  assert.equal(first, 'In #general lately: mostly code; about as busy as last week.');
-  for (let i = 0; i < 40; ++i) tally(f.bot.memory, 'general', '2026-10-29', { topic: 'music', engaged: false, outcome: 'learned-only' });
-  assert.equal(f.bot.notes('general', night), first);
+  const count = (topic, n) => { for (let i = 0; i < n; ++i) tally(f.bot.memory, 'general', { topic, engaged: false, outcome: 'learned-only' }); };
+  count('code', BLOCK);
+  const first = f.bot.notes('general');
+  assert.equal(first, 'In #general lately: mostly code.');
+  count('music', BLOCK - 1);
+  assert.equal(f.bot.notes('general'), first);
   f.bot.configure({ norms: { general: 'no spoilers' } });
-  assert.equal(f.bot.notes('general', night), 'In #general lately: mostly code; about as busy as last week. Norms: no spoilers');
-  assert.equal(f.bot.notes('general', tomorrow), 'In #general lately: mostly music, some code; busier than last week. Norms: no spoilers');
+  assert.equal(f.bot.notes('general'), 'In #general lately: mostly code. Norms: no spoilers');
+  count('music', 1);
+  assert.equal(f.bot.notes('general'), 'In #general lately: mostly code and music. Norms: no spoilers');
+  assert.deepEqual(f.bot.memory.pages.general, { closed: 2, mostly: ['code', 'music'], some: [], shifts: [] });
   assert.deepEqual(f.bot.log.list().filter(e => e.kind === 'settings').map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['norms'] }]);
   f.bot.configure({ norms: { general: 'no spoilers' } });
   assert.equal(f.bot.log.list().filter(e => e.kind === 'settings').length, 1);
@@ -533,17 +533,17 @@ test('status folds a server agent string to one bounded line', () => {
   const agent = bot.status().server.agent;
   assert.ok(!/\s{2}|\n|\t/.test(agent)); assert.equal(agent.length, 200); assert.ok(agent.startsWith('weird agent x'));
 });
-test('a state.json section that would not pass the write check loads as its default, and old memory is pruned on load', () => {
-  const today = new Date().toISOString().slice(0, 10), old = '2020-01-01';
+test('a state.json section that would not pass the write check loads as its default, and a day-bucket memory starts over', () => {
   const bucket = { topics: { code: { messages: 1, engaged: 0, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] };
-  const { bot } = fixture(undefined, () => ({
+  const { bot, saved } = fixture(undefined, () => ({
     personality: { version: 1, at: 0, cells: { bad: 'x' } }, budget: { day: 'yesterday', calls: -1 },
-    memory: { rooms: { general: { days: { [old]: bucket, [today]: bucket }, weeks: { [old]: bucket } } }, pages: {} },
+    memory: { rooms: { general: { days: { '2026-10-28': bucket }, weeks: { '2026-10-19': bucket } } }, pages: { general: { day: '2026-10-28', mostly: ['code'], some: [], pace: null, shifts: [] } } },
   }));
   assert.deepEqual(bot.state.cells, {});
   assert.deepEqual(bot.budget, { day: '', calls: 0 });
-  assert.deepEqual(Object.keys(bot.memory.rooms.general.days), [today]);
-  assert.deepEqual(bot.memory.rooms.general.weeks, {});
+  assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
+  bot.save();
+  assert.deepEqual(JSON.parse(saved[0]).memory, { rooms: {}, pages: {} });
 });
 test('a state.json from before calls were sorted by role loads with the day\'s calls intact and saves the counter', () => {
   const day = new Date().toISOString().slice(0, 10);

@@ -23,7 +23,7 @@ const events = [
   msg(8, 'general', 'learned-only', { learn_p: .5 }),
   msg(7, 'nowhere', 'other-room', { name: 'zed' }),
 ];
-const week = { days: ['2026-10-22', '2026-10-23', '2026-10-24', '2026-10-25', '2026-10-26', '2026-10-27', '2026-10-28'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]] };
+const blocks = { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]] };
 const s = {
   name: 'P', now: t, rooms: ['general', 'builds'], events, limit: '40',
   status: { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 40 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 } },
@@ -31,7 +31,7 @@ const s = {
   settings: restore({ settings: { persona: 'You are {name}.', norms: { general: 'be kind' } } }),
   details: { url: 'wss://h/', since: at(10), latency: 45, server: { agent: 'a/9' }, you: { user_id: 'bot_me', avatar: 'https://h/a.png' } },
   lastError: { code: 'state-refused', at: at(12) }, learning: null, preview: null,
-  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: be kind', week }, { id: 'builds', notes: '', week: { days: week.days, rows: [] } }],
+  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: be kind', blocks }, { id: 'builds', notes: '', blocks: { labels: ['now'], rows: [] } }],
   posts: [{ room_id: 'general', message_id: 'p1', log_id: String(at(19)), body: { text: 'yo' } }, { room_id: 'builds', message_id: 'p0', log_id: '5', body: { text: 'old' } }],
 };
 test('calls by role add up to the day\'s total, with what came before the counter left unsorted', () => {
@@ -127,7 +127,7 @@ test('a room page folds quiet runs, holds only its own posts, and keeps churn ou
   const view = room(s, 'general');
   assert.deepEqual(view.rows.map(r => r.kind === 'fold' ? `fold of ${r.rows.length}, ${r.learned} learned` : r.message_id ?? r.text), ['m50', 'm49', 'back after 856 min offline. anything said then I missed.', 'm20', 'p1', 'm15', 'fold of 2, 0 learned']);
   assert.deepEqual(view.rows.filter(r => r.kind === 'message').map(r => r.who), ['ben', 'theo', 'ana', 'kofi']);
-  assert.deepEqual([view.notes, view.norms, view.posts], ['In #general lately: mostly code. Norms: be kind', 'be kind', { error: null, list: [{ message_id: 'p1', at: at(19), text: 'yo' }] }]);
+  assert.deepEqual([view.notes, view.norms, view.blocks, view.posts], ['In #general lately: mostly code. Norms: be kind', 'be kind', blocks, { error: null, list: [{ message_id: 'p1', at: at(19), text: 'yo' }] }]);
   assert.deepEqual(room({ ...s, posts: { error: 'not-connected' } }, 'builds').posts, { error: 'not-connected', list: [] });
 });
 test('how I think lists the gate, then each prompt part as it is sent, for the chosen room', () => {
@@ -140,7 +140,7 @@ test('how I think lists the gate, then each prompt part as it is sent, for the c
   assert.deepEqual([chimes.settings, chimes.today], [{ organic: true, organic_threshold: .9 }, { chimed: 0, held: 0 }]);
   assert.deepEqual([persona.persona, persona.sent, persona.lesson], ['You are {name}.', 'You are P.', null]);
   assert.equal(traits.sent, "Match the room's temperament: it runs a little warmer than a typical chat.");
-  assert.deepEqual([notes.sent, notes.norms], ['In #general lately: mostly code. Norms: be kind', 'be kind']);
+  assert.deepEqual([notes.sent, notes.norms, notes.blocks, notes.why], ['In #general lately: mostly code. Norms: be kind', 'be kind', blocks, "only the room I'm answering in. rebuilt every 50 messages from what it talks about, plus your norms."]);
   assert.deepEqual([held.sent, held.tensions.split('\n').length], [tensionsPrompt(settings.tensions.default()), 5]);
   assert.equal(rules.sent, guardrails);
   assert.deepEqual([lines.sent, lines.chime], [`ana: what they said\nyou: what I said\n\n${cue}`, `ana: what they said\nyou: what I said\n\n${chime}`]);
