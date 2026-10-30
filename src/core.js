@@ -36,12 +36,14 @@ export function decision(data) {
   const a = answer(data, 'invalid-decision');
   const valid = x => Number.isFinite(x) && x >= 0 && x <= 1;
   if (!valid(a?.learn) || !valid(a?.reply) || !valid(a?.point)) throw Error('invalid-decision');
-  if (!CONFIDENCE.includes(a.confidence)) throw Error('invalid-decision');
+  // An unreadable confidence is UNCERTAIN rather than a failed classification, so learning and topics survive it,
+  // and an uncertain call still never chimes in.
+  const confidence = (typeof a.confidence === 'string' && CONFIDENCE.find(c => c === a.confidence.trim().toUpperCase())) || 'UNCERTAIN';
   const vector = axes.map(k => {
     if (!Object.hasOwn(levels, a[k])) throw Error('invalid-decision');
     return levels[a[k]];
   });
-  return { vector, learn: a.learn, reply: a.reply, point: a.point, confidence: a.confidence, topic: topic(a.topic) };
+  return { vector, learn: a.learn, reply: a.reply, point: a.point, confidence, topic: topic(a.topic) };
 }
 // Counts, not clocks. Behaviour and memory count messages and conversation state; a clock is used only by transport
 // (timeouts, pings, reconnects), by the owner's per-day call cap, and to show times on the portal.

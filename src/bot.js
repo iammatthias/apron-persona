@@ -142,8 +142,10 @@ export class Bot {
   rewrite(text, why = '') {
     const persona = settings.persona.parse(text), why_ = reason(why);
     if (persona === this.settings.persona) return false;
-    const n = (this.settings.revisions.at(-1)?.n ?? 0) + 1;
-    const revisions = [...this.settings.revisions, { text: persona, reason: why_, n }].slice(-REVISIONS);
+    // The persona in use before the first recorded save becomes revision #1, so it can always be restored.
+    const kept = this.settings.revisions.length ? this.settings.revisions : [{ text: this.settings.persona, reason: 'before the history began', n: 1 }];
+    const n = kept.at(-1).n + 1;
+    const revisions = [...kept, { text: persona, reason: why_, n }].slice(-REVISIONS);
     this.settings = { ...this.settings, persona, revisions }; this.save();
     this.record('settings', { keys: ['persona'], ...why_ ? { reason: why_ } : {} });
     return true;

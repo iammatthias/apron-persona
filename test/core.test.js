@@ -72,12 +72,13 @@ test('rejects malformed decisions and computes expected trait values', () => {
   assert.throws(() => decision(reply('not json')));
   assert.throws(() => decision({}));
 });
-test('a decision carries the model\'s confidence in its own call, one of four labels, or is refused', () => {
+test('a decision carries the model\'s confidence in its own call; any case is read, and anything else is UNCERTAIN', () => {
   const reply = content => ({ choices: [{ message: { content: JSON.stringify(content) } }] });
   const answers = { learn: .9, reply: .8, point: .6, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
   assert.deepEqual(CONFIDENCE, ['HIGH', 'MEDIUM', 'LOW', 'UNCERTAIN']);
   for (const confidence of CONFIDENCE) assert.equal(decision(reply({ ...answers, confidence })).confidence, confidence);
-  for (const confidence of [undefined, null, '', 'high', 'Medium', 'SURE', 0, ['HIGH'], 'HIGH ']) assert.throws(() => decision(reply({ ...answers, confidence })), { message: 'invalid-decision' }, String(confidence));
+  assert.deepEqual(['high', 'Medium', 'HIGH '].map(confidence => decision(reply({ ...answers, confidence })).confidence), ['HIGH', 'MEDIUM', 'HIGH']);
+  for (const confidence of [undefined, null, '', 'SURE', 0, ['HIGH']]) assert.equal(decision(reply({ ...answers, confidence })).confidence, 'UNCERTAIN', String(confidence));
   assert.ok(classify('hi')[0].content.includes('"confidence": label') && classify('hi')[0].content.includes('HIGH, MEDIUM, LOW or UNCERTAIN'));
 });
 test('naming the bot addresses it, but a word that merely contains it does not', () => {

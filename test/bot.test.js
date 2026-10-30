@@ -773,28 +773,31 @@ test('an owner set on the portal wins over the guess from the bot id, and a bad 
 });
 test('every persona save is a numbered revision with its reason; the last 20 are kept, and a restore is a revision too', () => {
   const { bot, saved } = connected();
+  const before = bot.settings.persona;
   assert.deepEqual(bot.settings.revisions, []);
   assert.equal(bot.rewrite('You are {name}, a pirate.', ' because pirates '), true);
-  assert.deepEqual(bot.settings.revisions, [{ text: 'You are {name}, a pirate.', reason: 'because pirates', n: 1 }]);
+  // The persona in use before the first save is kept as #1, so the owner can always get it back.
+  assert.deepEqual(bot.settings.revisions, [{ text: before, reason: 'before the history began', n: 1 }, { text: 'You are {name}, a pirate.', reason: 'because pirates', n: 2 }]);
   assert.equal(bot.settings.persona, 'You are {name}, a pirate.');
   assert.equal(bot.rewrite('You are {name}, a pirate.', 'again'), false);
-  assert.equal(bot.settings.revisions.length, 1);
+  assert.equal(bot.settings.revisions.length, 2);
   assert.equal(bot.rewrite('You are {name}, a sailor.'), true);
-  assert.deepEqual(bot.settings.revisions.at(-1), { text: 'You are {name}, a sailor.', reason: '', n: 2 });
+  assert.deepEqual(bot.settings.revisions.at(-1), { text: 'You are {name}, a sailor.', reason: '', n: 3 });
   assert.throws(() => bot.rewrite('You are {name}, a cook.', 'x'.repeat(201)), { message: 'a reason is at most 200 characters' });
   assert.throws(() => bot.rewrite('', 'blank'), { message: 'a persona is 1 to 4000 characters' });
-  assert.equal(bot.settings.revisions.length, 2);
+  assert.equal(bot.settings.revisions.length, 3);
   for (let i = 3; i <= 25; ++i) bot.rewrite(`You are {name}, number ${i}.`, `step ${i}`);
   assert.equal(bot.settings.revisions.length, 20);
-  assert.deepEqual(bot.settings.revisions.map(r => r.n), Array.from({ length: 20 }, (_, i) => i + 6));
-  assert.equal(bot.restore(7), true);
-  assert.deepEqual([bot.settings.persona, bot.settings.revisions.at(-1)], ['You are {name}, number 7.', { text: 'You are {name}, number 7.', reason: 'restored #7', n: 26 }]);
-  assert.equal(bot.settings.revisions[0].n, 7);
+  assert.deepEqual(bot.settings.revisions.map(r => r.n), Array.from({ length: 20 }, (_, i) => i + 7));
+  assert.equal(bot.restore(8), true);
+  assert.deepEqual([bot.settings.persona, bot.settings.revisions.at(-1)], ['You are {name}, number 7.', { text: 'You are {name}, number 7.', reason: 'restored #8', n: 27 }]);
+  assert.equal(bot.settings.revisions[0].n, 8);
+  assert.equal(bot.restore(27), false);
   assert.throws(() => bot.restore(1), { message: 'no revision #1' });
   assert.throws(() => bot.restore('x'), { message: 'no revision #x' });
-  assert.deepEqual(JSON.parse(saved.at(-1)).settings.revisions.at(-1), { text: 'You are {name}, number 7.', reason: 'restored #7', n: 26 });
+  assert.deepEqual(JSON.parse(saved.at(-1)).settings.revisions.at(-1), { text: 'You are {name}, number 7.', reason: 'restored #8', n: 27 });
   assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').slice(0, 2).map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['persona'], reason: 'because pirates' }, { kind: 'settings', keys: ['persona'] }]);
-  assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').at(-1).reason, 'restored #7');
+  assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').at(-1).reason, 'restored #8');
   assert.throws(() => bot.configure({ revisions: 'x' }), { message: 'revisions are kept, not written' });
 });
 test('a sender is sized up for learning once per LEARN_EVERY messages of the room, by position', async () => {

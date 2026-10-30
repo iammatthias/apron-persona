@@ -34,7 +34,7 @@ const state = object({
   settings: object({
     persona: owner(4000), tensions: list(object({ pole: owner(24), counter: owner(24), neither: owner(200) }), 8, 1),
     // The persona's last saves, numbered: owner text, no clock.
-    revisions: list(object({ text: owner(4000), reason: owner(200), n: count }), 20),
+    revisions: list(object({ text: owner(4000), reason: owner(200), n: v => Number.isInteger(v) && v >= 1 }), 20),
     paused: boolean, reply_mentions: boolean, reply_replies: boolean, reply_threshold: number,
     organic: boolean, organic_threshold: number, norms: map(room, owner(1000)), owner: string(/^[\w~.:-]{0,128}$/, 128),
   }),

@@ -73,6 +73,8 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       return 'Deleted';
     },
     async '/settings'(form) {
+      // The persona changes only through /persona, so every change lands in its numbered history.
+      if (form.has('persona')) throw Error('the persona is saved from its own form');
       bot.configure(Object.fromEntries(Object.keys(settings).filter(k => form.has(k)).map(k => [k, form.get(k)])));
       if (!form.has('paused')) return 'Saved';
       return bot.settings.paused ? 'Paused: not reading or replying' : 'Resumed';
@@ -98,7 +100,7 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
     },
     async '/persona'(form) { bot.rewrite(form.get('persona'), form.get('reason')); return 'Saved'; },
     async '/persona/reset'() { bot.rewrite(settings.persona.default(), 'reset to the default'); return 'Reset to the default persona'; },
-    async '/persona/restore'(form) { bot.restore(form.get('n')); return `Restored #${form.get('n')}`; },
+    async '/persona/restore'(form) { return bot.restore(form.get('n')) ? `Restored #${form.get('n')}` : `#${form.get('n')} is already who I am`; },
     async '/tensions'(form) { bot.configure({ tensions: form.get('tensions') }); return 'Saved what I hold in tension'; },
     async '/tensions/reset'() { bot.configure({ tensions: settings.tensions.default() }); return 'Reset to the default tensions'; },
   };

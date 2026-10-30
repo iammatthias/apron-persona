@@ -211,5 +211,6 @@ test('applying a redraft from history records a revision that says so', async ()
   const { bot } = teacher();
   await bot.study(job);
   bot.adopt('You are {name}, edited by the owner.');
-  assert.deepEqual(bot.settings.revisions, [{ text: 'You are {name}, edited by the owner.', reason: 'redrafted from 300 messages of history', n: 1 }]);
+  assert.deepEqual(bot.settings.revisions.map(r => [r.n, r.reason]), [[1, 'before the history began'], [2, 'redrafted from 300 messages of history']]);
+  assert.equal(bot.settings.revisions.at(-1).text, 'You are {name}, edited by the owner.');
 });
