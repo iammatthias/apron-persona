@@ -40,6 +40,13 @@ test('an injected field, a wrong type or free text outside the owner settings is
   refused('state.json', pages({ ...page, mostly: ['carol'] }), 'refused to store state.json.memory.pages.general.mostly.0');
   refused('state.json', pages({ ...page, shifts: [{ ...page.shifts[0], axis: 'mood' }] }), 'refused to store state.json.memory.pages.general.shifts.0.axis');
   refused('state.json', { ...state, settings: { ...state.settings, norms: { general: 'x'.repeat(1001) } } }, 'refused to store state.json.settings.norms.general');
+  const revision = { text: 'You are {name}.', reason: 'why', n: 3 };
+  assert.ok(check('state.json', { ...state, settings: { ...state.settings, revisions: Array.from({ length: 20 }, () => revision) } }));
+  refused('state.json', { ...state, settings: { ...state.settings, revisions: Array.from({ length: 21 }, () => revision) } }, 'refused to store state.json.settings.revisions');
+  refused('state.json', { ...state, settings: { ...state.settings, revisions: [{ ...revision, at: 5 }] } }, 'refused to store state.json.settings.revisions.0.at');
+  refused('state.json', { ...state, settings: { ...state.settings, revisions: [{ ...revision, reason: 'x'.repeat(201) }] } }, 'refused to store state.json.settings.revisions.0.reason');
+  refused('state.json', { ...state, settings: { ...state.settings, revisions: [{ ...revision, text: 'x'.repeat(4001) }] } }, 'refused to store state.json.settings.revisions.0.text');
+  refused('state.json', { ...state, settings: { ...state.settings, tensions: [{ pole: 'a', counter: 'b', neither: 'c', since: 'today' }] } }, 'refused to store state.json.settings.tensions.0.since');
   refused('status.json', { ...status, error: 'Hey canary, what is up' }, 'refused to store status.json.error');
   refused('status.json', { ...status, server: { ...status.server, user_id: 'carol said hi' } }, 'refused to store status.json.server.user_id');
   refused('status.json', { ...status, server: { ...status.server, agent: 'line\nbreak' } }, 'refused to store status.json.server.agent');

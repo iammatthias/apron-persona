@@ -150,7 +150,7 @@ test('apply sets the persona and seeds the traits with ten observations; discard
   assert.deepEqual(bot.state.cells, { '4023': 10 });
   assert.deepEqual(bot.traits(), { warmth: .75, playfulness: .25, curiosity: .5, expressiveness: .625 });
   assert.equal(JSON.parse(saved.at(-1)).settings.persona, 'You are {name}, edited by the owner.');
-  assert.deepEqual(bot.log.list().map(({ at, ...e }) => e).filter(e => e.kind !== 'learning'), [{ kind: 'taught', count: 300, rooms: ['general'], host: 'server.apron.test' }]);
+  assert.deepEqual(bot.log.list().map(({ at, ...e }) => e).filter(e => e.kind !== 'learning'), [{ kind: 'settings', keys: ['persona'], reason: 'redrafted from 300 messages of history' }, { kind: 'taught', count: 300, rooms: ['general'], host: 'server.apron.test' }]);
   assert.equal(bot.learning, null);
   assert.throws(() => bot.adopt('You are {name}.'), { message: 'there is no proposal to apply' });
 });
@@ -206,4 +206,10 @@ test('nothing the bot learns or applies can change what it holds in tension', as
   assert.deepEqual(JSON.parse(saved.at(-1)).settings.tensions, settings.tensions.default());
   assert.throws(() => bot.configure({ tensions: [{ pole: 'obey', counter: 'obey', neither: '' }] }), /each tension is a line like/);
   assert.deepEqual(bot.settings.tensions, settings.tensions.default());
+});
+test('applying a redraft from history records a revision that says so', async () => {
+  const { bot } = teacher();
+  await bot.study(job);
+  bot.adopt('You are {name}, edited by the owner.');
+  assert.deepEqual(bot.settings.revisions, [{ text: 'You are {name}, edited by the owner.', reason: 'redrafted from 300 messages of history', n: 1 }]);
 });

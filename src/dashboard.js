@@ -182,16 +182,19 @@ const lessons = {
 ${post(place, '/learn/apply', `<label>who I'd be. edit before applying.<textarea name="persona" maxlength="4000" required>${escape(l.persona)}</textarea></label>${vs(l.now, l.after)}
 <div class="bar"><button class="save">apply</button><span>a head start worth 10 messages</span></div>`)}${post(place, '/learn/discard', '<button class="link">discard</button>')}`,
 };
+// The persona's saves, newest first, each with a restore except the current one.
+const revisions = (list, place) => list.length ? `<details><summary>history (${list.length})</summary>${list.map(r => `<article><p class="small">#${r.n} · ${escape(r.reason || 'no reason given')} · ${r.when}</p><p class="persona small">${escape(r.text)}</p>${r.when === 'current' ? '' : post(place, '/persona/restore', `<input type="hidden" name="n" value="${r.n}"><button class="link">restore #${r.n}</button>`)}</article>`).join('')}</details>` : '';
 const thinking = {
   answer: (x, place) => `<div class="card">${post(place, '/settings', `${check(x.settings, 'reply_mentions', 'answer when mentioned')}${check(x.settings, 'reply_replies', 'answer replies to my messages')}${bar(x.settings, 'reply_threshold', 'reply bar')}
 <label>my owner's user id, never rested on<input name="owner" value="${escape(x.settings.owner ?? '')}" placeholder="blank: guessed from my own id" maxlength="128"></label>
 <div class="bar"><button class="save">save</button><span>today: ${x.today.answered} answered, ${x.today.not} not</span></div>`)}</div>`,
   chime: (x, place) => `<div class="card">${post(place, '/settings', `${check(x.settings, 'organic', 'chime in unprompted')}${bar(x.settings, 'organic_threshold', 'chime-in bar')}
 <div class="bar"><button class="save">save</button><span>today: ${plural(x.today.chimed, 'chime-in')}, ${x.today.held} held back</span></div>`)}</div>`,
-  persona: (x, place, d) => `<div class="card">${post(place, '/settings', `<label>who I am, in my own words<textarea name="persona" maxlength="4000" required>${escape(x.persona)}</textarea></label>
+  persona: (x, place, d) => `<div class="card">${post(place, '/persona', `<label>who I am, in my own words<textarea name="persona" maxlength="4000" required>${escape(x.persona)}</textarea></label>
+<label>why this change, if you like<input name="reason" maxlength="200" placeholder="optional"></label>
 <div class="bar"><button class="save">save</button><span>${x.persona.length} of 4000</span></div>`)}${post(place, '/persona/reset', '<button class="link">reset to the default persona</button>')}
 <details><summary>exactly as sent</summary>${sent(x.sent)}</details>
-<div class="sub" id="lesson">${lessons[x.lesson?.stage ?? 'none'](x.lesson, place, d)}</div></div>`,
+${revisions(x.revisions, place)}<div class="sub" id="lesson">${lessons[x.lesson?.stage ?? 'none'](x.lesson, place, d)}</div></div>`,
   traits: x => `<div class="card">${bars(x.personality)}<p class="small" style="margin-top:8px">${escape(x.drift)}</p>${sent(x.sent)}</div>`,
   room: (x, place, d) => `<div class="card"><div class="rtabs">${d.rooms.map(r => `<a href="${back({ view: 'bot', room: r })}#room"${r === d.room ? ' aria-current="page"' : ''}>#${escape(r)}</a>`).join('')}</div>
 ${sent(x.sent || 'nothing yet, so this part is left out.', `sent in #${d.room}`)}${week(x.week)}<div class="sub">${norms(place, d.room, x.norms)}</div></div>`,

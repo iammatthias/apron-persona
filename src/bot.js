@@ -1,5 +1,5 @@
 import { named, conversing, classify, decision, fresh, migrate, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW } from './core.js';
-import { settings, restore, systemPrompt, roomPrompt, line, recall } from './settings.js';
+import { settings, restore, systemPrompt, roomPrompt, line, recall, reason, REVISIONS } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
 import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
@@ -135,6 +135,23 @@ export class Bot {
     const keys = this.set(patch);
     if (keys.length) this.record('settings', { keys, ...Object.fromEntries(keys.map(k => [k, this.settings[k]])) });
   }
+  // Saves a new persona as a numbered revision with the owner's reason, keeping the last REVISIONS. The same text
+  // again is no revision. Every way the persona changes (the editor, a reset, a redraft applied, a restore) comes here.
+  rewrite(text, why = '') {
+    const persona = settings.persona.parse(text), why_ = reason(why);
+    if (persona === this.settings.persona) return false;
+    const n = (this.settings.revisions.at(-1)?.n ?? 0) + 1;
+    const revisions = [...this.settings.revisions, { text: persona, reason: why_, n }].slice(-REVISIONS);
+    this.settings = { ...this.settings, persona, revisions }; this.save();
+    this.record('settings', { keys: ['persona'], ...why_ ? { reason: why_ } : {} });
+    return true;
+  }
+  // Puts revision #n back as the persona, which is itself a revision.
+  restore(n) {
+    const revision = this.settings.revisions.find(r => r.n === Number(n));
+    if (!revision) throw Error(`no revision #${n}`);
+    return this.rewrite(revision.text, `restored #${revision.n}`);
+  }
   // Drafts a persona and traits from a room's history, in memory only. this.learning moves through reading and thinking
   // to ready, which holds the proposal, or failed. One job runs at a time; the promise never rejects.
   study({ url, token, rooms, cap }) {
@@ -159,7 +176,7 @@ export class Bot {
   adopt(text) {
     const l = this.learning;
     if (l?.stage !== 'ready') throw Error('there is no proposal to apply');
-    this.set({ persona: text });
+    this.rewrite(text, `redrafted from ${l.count} messages of history`);
     seed(this.state, l.vector);
     this.learning = null; this.save();
     this.record('taught', { count: l.count, rooms: l.rooms, host: l.host });

@@ -57,10 +57,30 @@ const tensions = {
   },
 };
 export const tensionsForm = ts => ts.map(t => `${t.pole} / ${t.counter}: ${t.neither}`).join('\n');
+// Why the owner changed the persona, in their words: optional, one line.
+export const reason = v => {
+  const s = String(v ?? '').replace(/\s+/g, ' ').trim();
+  if (s.length > 200) throw Error('a reason is at most 200 characters');
+  return s;
+};
+// The persona's history: each save as { text, reason, n }, n counting up across saves, the last REVISIONS kept. Only
+// Bot.rewrite() appends; the form has no field for it, and a value that isn't the saved list is refused.
+export const REVISIONS = 20;
+const revisions = {
+  default: () => [],
+  parse: v => {
+    if (!Array.isArray(v) || v.length > REVISIONS) throw Error('revisions are kept, not written');
+    return v.map(r => {
+      if (typeof r?.text !== 'string' || typeof r.reason !== 'string' || !Number.isInteger(r.n) || r.n < 1) throw Error('revisions are kept, not written');
+      return { text: text('persona', 4000)(r.text), reason: reason(r.reason), n: r.n };
+    });
+  },
+};
 export const tensionsPrompt = ts => `You're a participant in this room, not an assistant, so hold each of these in tension; neither end is right. ${ts.map(t => `${t.pole} ↔ ${t.counter}: ${t.neither}`).join(' ')}`;
 export const settings = {
   persona: { default: () => "You are {name}, a regular in this chat, not an assistant. Talk like the people here: short, usually lowercase, with opinions and jokes. Riff on what was just said. One word or one line is often enough. Never offer help, never greet anyone formally, and never ask what you can help with. Don't announce that you're a bot, but if someone genuinely asks whether you're an AI, say yes.", parse: text('persona', 4000) },
   tensions,
+  revisions,
   paused: flag('paused', false),
   reply_mentions: flag('answering mentions', true),
   reply_replies: flag('answering replies', true),

@@ -96,7 +96,9 @@ export function admin(bot, saveApron, { ping = 25000 } = {}) {
       bot.configure({ norms: { ...bot.settings.norms, [room]: form.get('norms') ?? '' } });
       return `Saved the norms for #${room}`;
     },
-    async '/persona/reset'() { bot.configure({ persona: settings.persona.default() }); return 'Reset to the default persona'; },
+    async '/persona'(form) { bot.rewrite(form.get('persona'), form.get('reason')); return 'Saved'; },
+    async '/persona/reset'() { bot.rewrite(settings.persona.default(), 'reset to the default'); return 'Reset to the default persona'; },
+    async '/persona/restore'(form) { bot.restore(form.get('n')); return `Restored #${form.get('n')}`; },
     async '/tensions'(form) { bot.configure({ tensions: form.get('tensions') }); return 'Saved what I hold in tension'; },
     async '/tensions/reset'() { bot.configure({ tensions: settings.tensions.default() }); return 'Reset to the default tensions'; },
   };

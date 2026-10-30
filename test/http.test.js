@@ -179,3 +179,23 @@ test('the owner rewrites the tensions one per line and resets them; a malformed 
   assert.equal((await post(admin, '/tensions/reset', {})).headers.get('Location'), '/?view=bot&room=general&ok=Reset%20to%20the%20default%20tensions');
   assert.deepEqual(bot.settings.tensions, settings.tensions.default());
 });
+test('the persona form saves with a reason, reset and restore are revisions, and the page lists the history with restore', async () => {
+  const { bot, admin } = listeners();
+  assert.equal((await post(admin, '/persona', { persona: 'You are {name}, a pirate.', reason: 'arr' })).headers.get('Location'), '/?view=bot&room=general&ok=Saved');
+  assert.equal((await post(admin, '/persona', { persona: 'You are {name}, a cook.' })).headers.get('Location'), '/?view=bot&room=general&ok=Saved');
+  assert.equal((await post(admin, '/persona/reset', {})).headers.get('Location'), '/?view=bot&room=general&ok=Reset%20to%20the%20default%20persona');
+  assert.deepEqual(bot.settings.revisions.map(r => [r.n, r.reason]), [[1, 'arr'], [2, ''], [3, 'reset to the default']]);
+  const html = await (await get(admin, '/?view=bot')).text();
+  assert.ok(html.includes('<form method="post" action="/persona"><input type="hidden" name="view" value="bot"><input type="hidden" name="room" value="general"><label>who I am, in my own words<textarea name="persona" maxlength="4000" required>'));
+  assert.ok(html.includes('<label>why this change, if you like<input name="reason" maxlength="200" placeholder="optional"></label>'));
+  assert.ok(html.includes('<details><summary>history (3)</summary><article><p class="small">#3 · reset to the default · current</p><p class="persona small">You are {name}, a regular in this chat'));
+  assert.ok(html.includes('<article><p class="small">#2 · no reason given · 1 save ago</p><p class="persona small">You are {name}, a cook.</p><form method="post" action="/persona/restore"><input type="hidden" name="view" value="bot"><input type="hidden" name="room" value="general"><input type="hidden" name="n" value="2"><button class="link">restore #2</button></form></article>'));
+  assert.ok(html.includes('<article><p class="small">#1 · arr · 2 saves ago</p><p class="persona small">You are {name}, a pirate.</p>'));
+  assert.equal((await post(admin, '/persona/restore', { n: '1' })).headers.get('Location'), '/?view=bot&room=general&ok=Restored%20%231');
+  assert.deepEqual([bot.settings.persona, bot.settings.revisions.at(-1)], ['You are {name}, a pirate.', { text: 'You are {name}, a pirate.', reason: 'restored #1', n: 4 }]);
+  assert.equal((await post(admin, '/persona/restore', { n: '9' })).headers.get('Location'), '/?view=bot&room=general&error=no%20revision%20%239');
+  assert.equal((await post(admin, '/persona', { persona: 'You are {name}, a baker.', reason: 'x'.repeat(201) })).headers.get('Location'), '/?view=bot&room=general&error=a%20reason%20is%20at%20most%20200%20characters');
+  assert.equal(bot.settings.persona, 'You are {name}, a pirate.');
+  const room = await (await get(admin, '/?view=room')).text();
+  assert.ok(room.includes('you rewrote who I am (arr)') && room.includes('you rewrote who I am (restored #1)'));
+});

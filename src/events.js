@@ -9,8 +9,9 @@ export const kinds = {
   message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'detail', 'ms', 'via', 'hedged'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
-  // The new value of each changed setting except the persona and norms, whose text stays out of the log.
-  settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'organic', 'organic_threshold'] },
+  // The new value of each changed setting except the persona, tensions and norms, whose text stays out of the log;
+  // a persona save carries the owner's reason.
+  settings: { label: 'Settings saved', fields: ['keys', 'paused', 'reply_mentions', 'reply_replies', 'reply_threshold', 'organic', 'organic_threshold', 'reason'] },
   error: { label: 'Error', fields: ['code'] },
   // A history job's stage: reading, thinking, ready or failed. Never the history or the draft.
   learning: { label: 'Learning from history', fields: ['stage', 'host', 'rooms', 'count', 'failed', 'detail'] },
@@ -88,8 +89,9 @@ export const margins = {
 const toggled = (on, off) => v => v ? on : off;
 // What each changed setting reads as in the transcript break.
 const changes = {
-  persona: () => 'you rewrote who I am',
+  persona: (_, e) => `you rewrote who I am${e.reason ? ` (${e.reason})` : ''}`,
   tensions: () => 'you rewrote what I hold in tension',
+  revisions: () => 'my history of who I am changed',
   paused: toggled('you paused me', 'you resumed me'),
   reply_mentions: toggled('you let me answer mentions', 'you stopped me answering mentions'),
   reply_replies: toggled('you let me answer replies to me', 'you stopped me answering replies to me'),
@@ -101,7 +103,7 @@ const changes = {
 };
 // The quiet break each owner event draws across every room's transcript.
 export const breaks = {
-  settings: e => e.keys.map(k => changes[k]?.(e[k]) ?? `you changed ${k}`).join(', '),
+  settings: e => e.keys.map(k => changes[k]?.(e[k], e) ?? `you changed ${k}`).join(', '),
   taught: e => `you taught me the room's voice (${plural(e.count, 'message')})`,
 };
 // Each line of the connection log; tone marks the ones that went wrong.

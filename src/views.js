@@ -122,6 +122,8 @@ function lesson(s) {
   if (!l) return null;
   return { stage: l.stage, where: where(l), count: l.count, failed: l.failed, detail: l.detail, persona: l.persona, now: s.status.personality, after: s.preview };
 }
+// The persona's saves newest first, each placed relative to the latest: current, or how many saves ago.
+const history = revisions => revisions.toReversed().map((r, i) => ({ ...r, when: i === 0 ? 'current' : `${plural(i, 'save')} ago` }));
 // A stand-in exchange, to show the shape of the transcript the model gets.
 const sample = [{ name: 'ana', content: 'what they said' }, { name: 'you', content: 'what I said' }];
 // How the bot thinks, in the order it uses each part: the gate, then the prompt from top to bottom. Every prompt part is
@@ -139,7 +141,7 @@ export function bot(s, id) {
     { id: 'chime', part: 'gate', title: 'do I speak up unprompted?', settings: pick('organic', 'organic_threshold'),
       why: `I score messages nobody asked me about to learn from them, one per person every 5 minutes. I speak up when the chance it'd be welcome and the chance I have something specific to add both clear the bar, and only once at least four messages from others have come in since I last spoke here.`,
       today: { chimed: count('chimed-in'), held: count('held-back', 'nothing-to-add', 'spoke-last') } },
-    { id: 'persona', part: 'prompt', title: 'who I am', why: `the first thing the model reads. {name} becomes ${s.name}.`, sent: persona, persona: set.persona, lesson: lesson(s) },
+    { id: 'persona', part: 'prompt', title: 'who I am', why: `the first thing the model reads. {name} becomes ${s.name}.`, sent: persona, persona: set.persona, lesson: lesson(s), revisions: history(set.revisions) },
     { id: 'traits', part: 'prompt', title: 'what the room made me', why: 'learned from the messages I read. not editable: it moves as the room talks.', sent: style, personality: p, drift: drift(p) },
     { id: 'room', part: 'prompt', title: 'what I know about the room', why: "only the room I'm answering in. rebuilt daily from what it talks about, plus your norms.", sent: notes, week: m.week, norms: set.norms[id] ?? '' },
     { id: 'tensions', part: 'prompt', title: 'what I hold in tension', why: 'how I carry myself: pairs where neither end is right, each with why. yours to edit, one per line; nothing I learn can touch them.', sent: held, tensions: tensionsForm(set.tensions) },
