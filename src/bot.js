@@ -1,4 +1,4 @@
-import { named, conversing, classify, decision, fresh, decay, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW } from './core.js';
+import { named, conversing, classify, decision, fresh, migrate, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line, recall } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
@@ -25,7 +25,8 @@ export class Bot {
     // Each section is checked as it loads: one that wouldn't pass the write check falls back to its default,
     // so a save can't be refused for something already on disk. Retention applies straight away.
     const ok = (key, value) => fits(schemas['state.json'].fields[key], value);
-    this.state = ok('personality', saved.personality) ? saved.personality : fresh();
+    const personality = migrate(saved.personality);
+    this.state = ok('personality', personality) ? personality : fresh();
     this.budget = ok('budget', saved.budget) ? saved.budget : { day: '', calls: 0 };
     // A state.json from before the counter has none, so the day's earlier calls stay unsorted.
     this.spent = ok('spent', saved.spent) ? saved.spent : {};
@@ -154,12 +155,12 @@ export class Bot {
   }
   get studying() { return ['reading', 'thinking'].includes(this.learning?.stage); }
   // The traits a proposal would leave: what the room has taught so far plus the proposal's head start.
-  preview() { return persona(seed(structuredClone(this.state), this.learning.vector, Date.now(), +this.env.HALF_LIFE_DAYS)); }
+  preview() { return persona(seed(structuredClone(this.state), this.learning.vector)); }
   adopt(text) {
     const l = this.learning;
     if (l?.stage !== 'ready') throw Error('there is no proposal to apply');
     this.set({ persona: text });
-    seed(this.state, l.vector, Date.now(), +this.env.HALF_LIFE_DAYS);
+    seed(this.state, l.vector);
     this.learning = null; this.save();
     this.record('taught', { count: l.count, rooms: l.rooms, host: l.host });
   }
@@ -405,7 +406,7 @@ export class Bot {
     // sender isn't judged on every message until one clears the learning bar.
     if (eligible && !unsized) this.people.set(participant, now);
     if (learned) {
-      learn(this.state, result.vector, result.learn, now, +this.env.HALF_LIFE_DAYS); this.dirty = true;
+      learn(this.state, result.vector, result.learn); this.dirty = true;
     }
     // style is present only when the message was learned from.
     const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
@@ -500,7 +501,7 @@ export class Bot {
     if (typeof this.you?.owner === 'string' && this.you.owner) return this.you.owner;
     return typeof this.self === 'string' && this.self.startsWith('bot_') && this.self.length > 4 ? this.self.slice(4) : undefined;
   }
-  traits() { return persona(decay(this.state, Date.now(), +this.env.HALF_LIFE_DAYS)); }
+  traits() { return persona(this.state); }
   status() {
     const agent = typeof this.server?.agent === 'string' ? this.server.agent.replace(/\s+/g, ' ').trim().slice(0, 200) || null : null;
     const server = this.ready ? { host: new URL(this.env.APRON_URL).host, agent, user_id: this.self } : null;

@@ -12,7 +12,7 @@ import { socket } from './fakes.js';
 import { snapshot } from '../src/http.js';
 import { needs } from '../src/views.js';
 const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
-const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
+const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const held = tensionsPrompt(settings.tensions.default());
 const defaults = { persona: settings.persona.default(), tensions: settings.tensions.default(), paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
 function fixture(request, load = () => ({})) {
@@ -139,13 +139,14 @@ test('configure applies nothing unless every key parses', () => {
   assert.deepEqual(bot.settings, defaults);
   assert.equal(saved.length, 0);
 });
-test('a legacy state.json with top-level name and paused migrates into settings', async () => {
-  const personality = { version: 1, at: 0, cells: {} };
+test('a legacy state.json with top-level name and paused migrates into settings, and a version-1 personality keeps its cells', async () => {
+  const personality = { version: 1, at: 1761700000000, cells: { '4023': 2.5 } };
   const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, name: 'Old Ghost', paused: true }));
   assert.deepEqual(bot.settings, { ...defaults, paused: true });
+  assert.deepEqual(bot.traits(), { warmth: .6, playfulness: .4, curiosity: .5, expressiveness: .55 });
   bot.save();
   assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
-  assert.deepEqual(JSON.parse(saved[0]), { personality, budget: { day: '', calls: 0 }, spent: {}, settings: { ...defaults, paused: true }, memory: { rooms: {}, pages: {} } });
+  assert.deepEqual(JSON.parse(saved[0]), { personality: { version: 2, cells: { '4023': 2.5 }, n: 0 }, budget: { day: '', calls: 0 }, spent: {}, settings: { ...defaults, paused: true }, memory: { rooms: {}, pages: {} } });
   const broken = fixture(undefined, () => ({ personality, memory: { rooms: { general: { days: { yesterday: 'carol said hi' }, weeks: {} } } } }));
   assert.deepEqual(broken.bot.memory, { rooms: {}, pages: {} });
 });

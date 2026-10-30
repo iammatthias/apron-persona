@@ -38,24 +38,39 @@ export function decision(data) {
   });
   return { vector, learn: a.learn, reply: a.reply, point: a.point, topic: topic(a.topic) };
 }
-export function fresh(now = Date.now()) { return { version: 1, at: now, cells: {} }; }
-export function decay(state, now, days = 30) {
-  const factor = 2 ** (-Math.max(0, now - state.at) / (days * 86400000));
+// How many lessons it takes for a lesson to fade to half its weight. Forgetting is by intake, never by the calendar: a
+// quiet room keeps what it taught. 200 means a room that changes its tone retrains the bot within a few hundred
+// learned messages, while one odd evening of twenty can't swing it; the ten-lesson seed and the ten-lesson neutral
+// prior are each outvoted once the room has taught a few dozen times over.
+export const HALF_LIFE = 200;
+// What a redraft from history is worth: as much as the neutral prior, so it tilts the start without fixing it.
+export const SEED = 10;
+// The personality: version 2 holds weighted cells on a 5x5x5x5 grid of trait levels and n, how many lessons it has
+// taken in. Version 1 kept a clock (`at`) and faded by days; migrate() carries its cells over.
+export function fresh() { return { version: 2, cells: {}, n: 0 }; }
+export function migrate(state) {
+  return state?.version === 1 && state.cells && typeof state.cells === 'object' ? { version: 2, cells: state.cells, n: 0 } : state;
+}
+// Every cell loses the share `count` lessons take from it; a lesson faded below notice is dropped.
+function fade(state, count) {
+  const factor = 2 ** (-count / HALF_LIFE);
   for (const [k, w] of Object.entries(state.cells)) {
     state.cells[k] = w * factor;
     if (state.cells[k] < .0001) delete state.cells[k];
   }
-  state.at = now;
-  return state;
+  state.n += count;
 }
-export function learn(state, vector, weight, now = Date.now(), days = 30) {
-  decay(state, now, days);
+// One lesson: the earlier ones fade a step, and the cell for this style gains up to one observation.
+export function learn(state, vector, weight) {
+  fade(state, 1);
   const key = vector.map(x => Math.round(Math.max(0, Math.min(1, x)) * 4)).join('');
   state.cells[key] = (state.cells[key] ?? 0) + Math.min(1, Math.max(0, weight));
 }
-// A head start toward vector worth as much as the neutral prior. learn() counts at most one observation per call.
-export function seed(state, vector, now, days) {
-  for (let i = 0; i < 10; ++i) learn(state, vector, 1, now, days);
+// A head start toward vector, taken in as SEED lessons arriving at once.
+export function seed(state, vector) {
+  fade(state, SEED);
+  const key = vector.map(x => Math.round(Math.max(0, Math.min(1, x)) * 4)).join('');
+  state.cells[key] = (state.cells[key] ?? 0) + SEED;
   return state;
 }
 export function persona(state) {

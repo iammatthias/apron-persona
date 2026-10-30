@@ -10,7 +10,7 @@ import { cue } from '../src/settings.js';
 const unhandled = [];
 process.on('unhandledRejection', e => unhandled.push(e));
 afterAll(() => assert.deepEqual(unhandled, []));
-const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
+const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const content = text => ({ choices: [{ message: { content: text } }] });
 const judged = (scores = {}) => content(JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced', ...scores }));
 // A signed-in bot on a fake clock whose model requests the test answers by hand.

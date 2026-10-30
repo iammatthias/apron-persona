@@ -23,7 +23,8 @@ const bucket = object({
   learned: count, lean: list(number, 4, 4),
 });
 const state = object({
-  personality: object({ version: count, at: number, cells: map(string(/^[0-4]{4}$/, 4), number) }),
+  // n is how many lessons the cells have taken in; the cells fade by that count, never by a clock.
+  personality: object({ version: one([2]), cells: map(string(/^[0-4]{4}$/, 4), number), n: count }),
   budget: object({ day: v => v === '' || date(v), calls: count }),
   // budget.day's calls by role; hedges and retries are among each role's calls.
   spent: map(one(Object.keys(roles)), object({ calls: count, hedges: count, retries: count })),

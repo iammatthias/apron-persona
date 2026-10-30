@@ -1,16 +1,45 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { named, conversing, axes, fresh, learn, decay, persona, fingerprint, incoming, decision } from '../src/core.js';
-test('4D cells decay by half-life and centroid has a neutral prior', () => {
-  const s = fresh(0); learn(s, [1, 0, .5, .75], 1, 0);
-  assert.deepEqual(s.cells, { '4023': 1 });
+import { named, conversing, axes, fresh, learn, seed, migrate, persona, fingerprint, incoming, decision, HALF_LIFE } from '../src/core.js';
+test('a lesson fades by intake, not by the calendar: half after HALF_LIFE more lessons, untouched while nothing is learned', () => {
+  const s = fresh();
+  assert.deepEqual(s, { version: 2, cells: {}, n: 0 });
+  learn(s, [1, 0, .5, .75], 1);
+  assert.deepEqual(s, { version: 2, cells: { '4023': 1 }, n: 1 });
   assert.equal(persona(s).warmth, .545);
-  decay(s, 30 * 86400000); assert.equal(s.cells['4023'], .5);
-  assert.equal(persona(s).warmth, .524);
+  const read = structuredClone(s);
+  for (let i = 0; i < 50; ++i) persona(s);
+  assert.deepEqual(s, read);
+  for (let i = 0; i < HALF_LIFE; ++i) learn(s, [.5, .5, .5, .5], 1);
+  assert.equal(Math.round(s.cells['4023'] * 1e6) / 1e6, .5);
+  assert.equal(s.n, 1 + HALF_LIFE);
+  for (let i = 0; i < HALF_LIFE; ++i) learn(s, [.5, .5, .5, .5], 1);
+  assert.equal(Math.round(s.cells['4023'] * 1e6) / 1e6, .25);
+  assert.equal(HALF_LIFE, 200);
+  // A lesson that has faded below notice is dropped, so the grid never fills with ghosts.
+  const t = fresh(); learn(t, [0, 0, 0, 0], 1);
+  for (let i = 0; i < 14 * HALF_LIFE; ++i) learn(t, [1, 1, 1, 1], 1);
+  assert.deepEqual(Object.keys(t.cells), ['4444']);
+});
+test('a seed is a head start worth ten lessons, and pushes earlier lessons back the same as ten would', () => {
+  const s = fresh();
+  seed(s, [1, 0, .5, .75]);
+  assert.deepEqual(s, { version: 2, cells: { '4023': 10 }, n: 10 });
+  learn(s, [0, 0, 0, 0], 1);
+  seed(s, [1, 1, 1, 1]);
+  assert.equal(Math.round(s.cells['0000'] * 1e6) / 1e6, Math.round(2 ** (-10 / HALF_LIFE) * 1e6) / 1e6);
+  assert.equal(s.n, 21);
+});
+test('a version-1 personality migrates on load: its cells kept, its clock dropped, n starting at 0', () => {
+  assert.deepEqual(migrate({ version: 1, at: 1761700000000, cells: { '2222': 3.5, '4023': .2 } }), { version: 2, cells: { '2222': 3.5, '4023': .2 }, n: 0 });
+  const v2 = { version: 2, cells: { '2222': 1 }, n: 7 };
+  assert.equal(migrate(v2), v2);
+  assert.deepEqual(migrate(undefined), undefined);
+  assert.deepEqual(migrate({ version: 1, at: 0 }), { version: 1, at: 0 });
 });
 test('personality grid is bounded at 625 cells', () => {
-  const s = fresh(0);
-  for (let i = 0; i < 1250; ++i) learn(s, [0, 1, 2, 3].map(n => (Math.floor(i / 5 ** n) % 5) / 4), 1, 0);
+  const s = fresh();
+  for (let i = 0; i < 1250; ++i) learn(s, [0, 1, 2, 3].map(n => (Math.floor(i / 5 ** n) % 5) / 4), 1);
   assert.ok(Object.keys(s.cells).length <= 625);
 });
 test('fingerprints normalize repeats and depend on secret', async () => {

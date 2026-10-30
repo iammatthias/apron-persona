@@ -104,7 +104,7 @@ test('synthesis reads each chunk, merges the voices, and counts a failed reading
   asked.length = 0;
   await assert.rejects(synthesize(chunks, ask([voice('a'), voice('b'), content('not json')])), { message: 'invalid-draft' });
 });
-const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', HALF_LIFE_DAYS: '30', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
+const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const canary = 'history-canary';
 // A bot whose connections reach a history server of `n` canary lines and whose model reads every chunk as warm and dry.
 function teacher({ n = 300, calls = '40', reply = voice('dry and quick'), persona = 'You are {name}, dry and quick.' } = {}) {
