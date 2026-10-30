@@ -12,7 +12,7 @@ process.on('unhandledRejection', e => unhandled.push(e));
 afterAll(() => assert.deepEqual(unhandled, []));
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const content = text => ({ choices: [{ message: { content: text } }] });
-const judged = (scores = {}) => content(JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced', ...scores }));
+const judged = (scores = {}) => content(JSON.stringify({ learn: .9, reply: .9, point: .9, confidence: 'HIGH', warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced', ...scores }));
 // A signed-in bot on a fake clock whose model requests the test answers by hand.
 function rig({ capabilities = ['activity'], calls = '40' } = {}) {
   const timers = clock(), l = lab(), ws = socket();
@@ -51,7 +51,7 @@ test('a mention has its history read, its judge and its draft in flight together
   await r.settle();
   assert.deepEqual(r.posts(), [{ room_id: 'general', body: { text: 'yo' }, reply_to: { message_id: 'm1' } }]);
   const { ms, ...e } = r.last();
-  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5], via: { judge: 'd', compose: 'c' } });
+  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], via: { judge: 'd', compose: 'c' } });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'post', 'total']);
   assert.ok(Object.values(ms).every(v => Number.isInteger(v) && v >= 0));
   assert.deepEqual(r.typing(), [8, 0]);
@@ -66,7 +66,7 @@ test('a decline aborts the draft, posts nothing and clears the typing notice', a
   assert.deepEqual(r.posts(), []);
   assert.deepEqual(r.typing(), [8, 0]);
   const { ms, ...e } = r.last();
-  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'declined', learn_p: .9, reply_p: .2, point_p: .9, style: [.5, .5, .5, .5], need: .7, via: { judge: 'd' } });
+  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'declined', learn_p: .9, reply_p: .2, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], need: .7, via: { judge: 'd' } });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'total']);
   assert.equal(r.timers.pending(), 0);
 });
@@ -136,7 +136,7 @@ test('the deadline ends a message that is still drafting: reply-failed, deadline
   await r.settle();
   assert.equal(r.calls[1].aborted, 'deadline');
   const { ms, ...e } = r.last();
-  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'reply-failed', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5], detail: 'deadline', via: { judge: 'd' } });
+  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'reply-failed', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], detail: 'deadline', via: { judge: 'd' } });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'total']);
   assert.deepEqual(r.typing(), [8, 8, 8, 8, 8, 0]);
   assert.equal(r.timers.pending(), 0);
@@ -164,7 +164,7 @@ test('a reply that was sent but never acknowledged is recorded as posted, withou
   await r.timers.tick(10000);
   await r.settle();
   const { ms, ...e } = r.last();
-  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5], detail: 'post-timeout', via: { judge: 'd', compose: 'c' } });
+  assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], detail: 'post-timeout', via: { judge: 'd', compose: 'c' } });
   const { at, ...posted } = r.bot.log.list().findLast(x => x.kind === 'posted');
   assert.deepEqual(posted, { kind: 'posted', room: 'general', reply_to: 'm1', text: 'yo' });
   assert.equal(margins.replied.say({ reply_p: .9, detail: 'post-timeout', ms: { total: 10000 } }), 'answered in 10.0s, though the server never confirmed it (post-timeout).');
@@ -254,9 +254,9 @@ test('a burst from one sender is answered once, to the latest message, with the 
   assert.deepEqual(r.posts(), [{ room_id: 'general', body: { text: 'here you go' }, reply_to: { message_id: 'm3' } }]);
   const events = r.bot.log.list().filter(e => e.kind === 'message').map(({ at, kind, ms, via, ...e }) => e);
   assert.deepEqual(events, [
-    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me', outcome: 'superseded', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5] },
+    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me', outcome: 'superseded', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5] },
     { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'wait @bot_me', outcome: 'superseded' },
-    { room: 'general', message_id: 'm3', from: 'carol', addressed: 'mention', text: 'actually @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9 },
+    { room: 'general', message_id: 'm3', from: 'carol', addressed: 'mention', text: 'actually @bot_me', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH' },
   ]);
   assert.equal(r.calls[5].body.messages[1].content.split('\n\n')[0], 'carol: hey @bot_me\ncarol: wait @bot_me\ncarol: actually @bot_me');
   assert.deepEqual(r.typing(), [8, 0, 8, 0, 8, 0]);
@@ -316,8 +316,8 @@ test('an untagged follow-up sent while the bot drafts is answered after the firs
   assert.deepEqual(r.posts().map(p => [p.body.text, p.reply_to.message_id]), [['try Y', 'm1'], ['east side, then Z', 'm2']]);
   const events = r.bot.log.list().filter(e => e.kind === 'message').map(({ at, kind, ms, via, ...e }) => e);
   assert.deepEqual(events, [
-    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me, best ramen?', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: [.5, .5, .5, .5] },
-    { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'in the east side ideally', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9 },
+    { room: 'general', message_id: 'm1', from: 'carol', addressed: 'mention', text: 'hey @bot_me, best ramen?', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5] },
+    { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'in the east side ideally', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH' },
   ]);
   assert.equal(r.bot.newest.get('general')?.size ?? 0, 0);
   assert.equal(r.timers.pending(), 0);

@@ -156,7 +156,7 @@ test('norms save per watched room, show in the room notes, and stay out of the l
   assert.deepEqual(bot.settings.norms, { general: 'no <b>spoilers</b>' });
   const html = await (await get(admin, '/?view=room')).text();
   assert.ok(html.includes('<p class="small">Norms: no &#60;b&#62;spoilers&#60;/b&#62;</p>'));
-  assert.ok(html.includes('<summary>last 1 block by topic, 50 messages each</summary><table class="week"><thead><tr><th></th><th title="the block being filled">now</th></tr></thead><tbody><tr><th>food</th><td>1</td></tr></tbody></table>'));
+  assert.ok(html.includes('<summary>last 1 block by topic, 50 messages each</summary><table class="week"><thead><tr><th></th><th title="the block being filled">now</th></tr></thead><tbody><tr><th>food</th><td>1</td></tr></tbody></table><p class="small">how sure I was of my own calls over these: 0 high, 0 medium, 0 low, 0 uncertain.</p>'));
   assert.ok(html.includes("you rewrote a room's norms"));
   assert.ok(!JSON.stringify(bot.log.list()).includes('spoilers'));
   assert.equal((await post(admin, '/norms', { room_id: 'random', norms: 'x' })).headers.get('Location'), '/?view=bot&room=general&error=unknown%20room');

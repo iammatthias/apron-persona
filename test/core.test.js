@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { named, conversing, axes, fresh, learn, seed, migrate, persona, fingerprint, incoming, decision, HALF_LIFE, ALONE, FOLLOWUP } from '../src/core.js';
+import { named, conversing, axes, fresh, learn, seed, migrate, persona, fingerprint, incoming, decision, classify, HALF_LIFE, ALONE, FOLLOWUP, CONFIDENCE } from '../src/core.js';
 test('a lesson fades by intake, not by the calendar: half after HALF_LIFE more lessons, untouched while nothing is learned', () => {
   const s = fresh();
   assert.deepEqual(s, { version: 2, cells: {}, n: 0 });
@@ -62,7 +62,7 @@ test('names why it skips bots, notices, own messages, deletes, blanks and unwatc
 });
 test('rejects malformed decisions and computes expected trait values', () => {
   const reply = content => ({ choices: [{ message: { content } }] });
-  const answers = { learn: .9, reply: .8, point: .6, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
+  const answers = { learn: .9, reply: .8, point: .6, confidence: 'HIGH', warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
   assert.deepEqual(decision(reply(JSON.stringify(answers))).vector, [1, 0, .5, .75]);
   assert.equal(decision(reply('```json\n' + JSON.stringify(answers) + '\n```')).learn, .9);
   assert.throws(() => decision(reply(JSON.stringify({ ...answers, warmth: 'toString' }))));
@@ -71,6 +71,14 @@ test('rejects malformed decisions and computes expected trait values', () => {
   for (const point of [undefined, -0.1, 1.5, '0.6', null]) assert.throws(() => decision(reply(JSON.stringify({ ...answers, point }))), { message: 'invalid-decision' }, String(point));
   assert.throws(() => decision(reply('not json')));
   assert.throws(() => decision({}));
+});
+test('a decision carries the model\'s confidence in its own call, one of four labels, or is refused', () => {
+  const reply = content => ({ choices: [{ message: { content: JSON.stringify(content) } }] });
+  const answers = { learn: .9, reply: .8, point: .6, warmth: 'high', playfulness: 'low', curiosity: 'balanced', expressiveness: 'elevated' };
+  assert.deepEqual(CONFIDENCE, ['HIGH', 'MEDIUM', 'LOW', 'UNCERTAIN']);
+  for (const confidence of CONFIDENCE) assert.equal(decision(reply({ ...answers, confidence })).confidence, confidence);
+  for (const confidence of [undefined, null, '', 'high', 'Medium', 'SURE', 0, ['HIGH'], 'HIGH ']) assert.throws(() => decision(reply({ ...answers, confidence })), { message: 'invalid-decision' }, String(confidence));
+  assert.ok(classify('hi')[0].content.includes('"confidence": label') && classify('hi')[0].content.includes('HIGH, MEDIUM, LOW or UNCERTAIN'));
 });
 test('naming the bot addresses it, but a word that merely contains it does not', () => {
   const names = ['Bot of Matthias', 'bot_guest_1'];

@@ -4,9 +4,9 @@ export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
   disconnected: { label: 'Disconnected', fields: ['reason'] },
   'auth-denied': { label: 'Token refused', fields: [] },
-  // addressed is 'mention' or 'reply'. need is the bar that decided it.
+  // addressed is 'mention' or 'reply'. need is the bar that decided it. confidence is the classifier's in its own call.
   // ms is each stage's time in milliseconds and the total, via the model that answered each role, hedged the roles that raced two.
-  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'style', 'need', 'detail', 'ms', 'via', 'hedged'] },
+  message: { label: 'Message', fields: ['room', 'message_id', 'reply_to', 'from', 'name', 'addressed', 'text', 'outcome', 'learn_p', 'reply_p', 'point_p', 'confidence', 'style', 'need', 'detail', 'ms', 'via', 'hedged'] },
   posted: { label: 'Posted', fields: ['room', 'message_id', 'reply_to', 'organic', 'text'] },
   deleted: { label: 'Post deleted', fields: ['room', 'message_id'] },
   // The new value of each changed setting except the persona, tensions and norms, whose text stays out of the log;
@@ -35,6 +35,7 @@ export const outcomes = {
   'held-back': 'Not addressed; below the chime-in bar',
   'nothing-to-add': 'Not addressed; nothing specific to add',
   'spoke-last': 'Not addressed; the bot posted here within the last few messages',
+  unsure: 'Not addressed; the model was not sure enough of its own call',
   looping: `Resting: the bot took ${LOOP_TURNS} of the room's last ${LOOP_WINDOW} turns`,
   superseded: 'Addressed; the sender\'s next message was taken up instead',
   budget: 'Skipped: hit the daily cap you set (DAILY_CALLS)',
@@ -77,6 +78,7 @@ export const margins = {
   'held-back': { place: 'room', fold: true, say: e => `could have chimed in (${p2(e.reply_p)}), but I hold out for ${p2(e.need)}.` },
   'nothing-to-add': { place: 'room', fold: true, say: e => `could have chimed in, but I had nothing specific to add (${p2(e.point_p)}).` },
   'spoke-last': { place: 'room', say: () => "I'd said something here only a few messages ago, so I let others talk." },
+  unsure: { place: 'room', fold: true, say: () => "I could have chimed in, but I wasn't sure enough of myself." },
   looping: { place: 'room', fold: true, miss: 'resting', say: () => `I've taken ${LOOP_TURNS} of the last ${LOOP_WINDOW} turns here, so I'm sitting this one out.` },
   superseded: { place: 'room', fold: true, miss: 'moved on', say: () => 'you kept going, so I moved on to your latest.' },
   budget: { place: 'room', tone: 'warn', miss: 'at your cap', say: () => "I hit the daily cap you set (DAILY_CALLS), so I let it pass." },

@@ -37,7 +37,7 @@ test('addressed messages: the trigger, then the reply bar, and never the clock',
   assert.ok(!('cooldown' in base) && !('organic_gap' in base));
 });
 test('unaddressed messages: organic switch, then its bar, then four messages from others since the bot last posted', () => {
-  const decide = (s, reply_p, since) => trigger({ ...base, ...s }, { addressed: undefined, eligible: true, reply_p, point_p: 1, since });
+  const decide = (s, reply_p, since) => trigger({ ...base, ...s }, { addressed: undefined, eligible: true, reply_p, point_p: 1, confidence: 'HIGH', since });
   const on = { organic: true };
   assert.deepEqual(decide({}, .99), { respond: null, outcome: 'learned-only' });
   assert.deepEqual(decide({}, .99, 1), { respond: null, outcome: 'learned-only' });
@@ -49,7 +49,7 @@ test('unaddressed messages: organic switch, then its bar, then four messages fro
   assert.deepEqual(decide(on, .5, 1), { respond: null, outcome: 'held-back', need: .9 });
 });
 test("after six of a room's last eighteen turns were its own, the bot rests there: no answer, no chime-in, no draft", () => {
-  const decide = (addressed, turns, s = {}) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p: .95, point_p: .95, since: 4, turns });
+  const decide = (addressed, turns, s = {}) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p: .95, point_p: .95, confidence: 'HIGH', since: 4, turns });
   for (const addressed of ['mention', 'reply']) {
     assert.deepEqual(decide(addressed, undefined), { respond: addressed, outcome: 'replied' });
     assert.deepEqual(decide(addressed, 5), { respond: addressed, outcome: 'replied' });
@@ -71,7 +71,7 @@ test("after six of a room's last eighteen turns were its own, the bot rests ther
   assert.equal(trigger(base, { addressed: undefined, eligible: true, turns: 6 }), null);
 });
 test('a chime-in also needs a point that clears the same bar; mentions and replies never ask for one', () => {
-  const decide = (s, addressed, reply_p, point_p, since) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p, point_p, since });
+  const decide = (s, addressed, reply_p, point_p, since) => trigger({ ...base, organic: true, ...s }, { addressed, eligible: true, reply_p, point_p, confidence: 'HIGH', since });
   assert.deepEqual(decide({}, undefined, .95, .9), { respond: 'organic', outcome: 'chimed-in' });
   assert.deepEqual(decide({}, undefined, .95, .42), { respond: null, outcome: 'nothing-to-add', need: .9 });
   assert.deepEqual(decide({}, undefined, .95, .89), { respond: null, outcome: 'nothing-to-add', need: .9 });
@@ -89,4 +89,16 @@ test('a chime-in also needs a point that clears the same bar; mentions and repli
     assert.deepEqual(decide({}, addressed, .7, undefined, 1), { respond: addressed, outcome: 'replied' });
     assert.deepEqual(decide({}, addressed, .69, 1), { respond: null, outcome: 'declined', need: .7 });
   }
+});
+test('a chime-in needs the model sure of its own call: HIGH or MEDIUM; a mention or reply is answered at any confidence', () => {
+  const decide = (confidence, extra = {}) => trigger({ ...base, organic: true }, { addressed: undefined, eligible: true, reply_p: .95, point_p: .95, confidence, since: 4, ...extra });
+  for (const c of ['HIGH', 'MEDIUM']) assert.deepEqual(decide(c), { respond: 'organic', outcome: 'chimed-in' }, c);
+  for (const c of ['LOW', 'UNCERTAIN', undefined, 'high', 'sure']) assert.deepEqual(decide(c), { respond: null, outcome: 'unsure' }, String(c));
+  // The bars and the pacing come first: an unsure message under the bar is held back, and one right after a post is spoke-last.
+  assert.deepEqual(decide('LOW', { reply_p: .5 }), { respond: null, outcome: 'held-back', need: .9 });
+  assert.deepEqual(decide('LOW', { point_p: .5 }), { respond: null, outcome: 'nothing-to-add', need: .9 });
+  assert.deepEqual(decide('LOW', { since: 1 }), { respond: null, outcome: 'spoke-last' });
+  assert.deepEqual(decide('LOW', { turns: 6 }), { respond: null, outcome: 'looping' });
+  for (const addressed of ['mention', 'reply']) for (const c of ['LOW', 'UNCERTAIN', undefined])
+    assert.deepEqual(trigger(base, { addressed, eligible: true, reply_p: .9, point_p: .1, confidence: c, since: 1 }), { respond: addressed, outcome: 'replied' }, `${addressed} ${c}`);
 });

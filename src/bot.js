@@ -266,7 +266,7 @@ export class Bot {
         .then(({ posted, respond, topic, ...result }) => {
           const e = { ...seen, ...result };
           this.record('message', { ...e, text: text(e.addressed || respond) });
-          if (topic) { tally(this.memory, p.room_id, { topic, engaged: !!e.addressed, outcome: e.outcome, style: e.style }); this.dirty = true; }
+          if (topic) { tally(this.memory, p.room_id, { topic, engaged: !!e.addressed, outcome: e.outcome, style: e.style, confidence: e.confidence }); this.dirty = true; }
           if (posted) this.record('posted', { room: p.room_id, ...posted });
         }, () => this.fail('message-processing-failed'))
         .finally(() => --this.pending);
@@ -388,7 +388,7 @@ export class Bot {
   async pipeline(p, { text, addressed, eligible, since, turns, connection, signal, timed, asked, post }) {
     const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
     // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot posted too lately or is resting), nothing is read or drafted ahead.
-    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, since, turns }).respond;
+    const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, confidence: 'HIGH', since, turns }).respond;
     const within = (budget, work) => {
       const c = new AbortController(), timer = this.timers.setTimeout(() => c.abort(Error('timeout')), budget), relay = () => c.abort(signal.reason);
       signal.addEventListener('abort', relay);
@@ -432,8 +432,8 @@ export class Bot {
       learn(this.state, result.vector, result.learn); this.dirty = true;
     }
     // style is present only when the message was learned from.
-    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, topic: result.topic, style: learned ? result.vector : undefined };
-    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point, since, turns });
+    const scores = unsized ? { detail: unsized } : { learn_p: result.learn, reply_p: result.reply, point_p: result.point, confidence: result.confidence, topic: result.topic, style: learned ? result.vector : undefined };
+    const { respond, ...verdict } = trigger(this.settings, { addressed, eligible, reply_p: result.reply, point_p: result.point, confidence: result.confidence, since, turns });
     if (!respond) return { ...verdict, ...scores };
     const organic = respond === 'organic';
     compose ??= draft(organic);

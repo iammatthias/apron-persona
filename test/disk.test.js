@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { check, disk } from '../src/disk.js';
 import { restore } from '../src/settings.js';
-const state = { personality: { version: 2, cells: { '2222': .5 }, n: 3 }, budget: { day: '2026-10-29', calls: 3 }, spent: { judge: { calls: 2, hedges: 1, retries: 0 }, compose: { calls: 1, hedges: 0, retries: 0 } }, settings: restore({}), memory: { rooms: { general: { open: { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 } }, learned: 1, lean: [.25, 0, 0, -.25] }, blocks: [], folds: [], closed: 0 } }, pages: {} } };
+const state = { personality: { version: 2, cells: { '2222': .5 }, n: 3 }, budget: { day: '2026-10-29', calls: 3 }, spent: { judge: { calls: 2, hedges: 1, retries: 0 }, compose: { calls: 1, hedges: 0, retries: 0 } }, settings: restore({}), memory: { rooms: { general: { open: { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 } }, learned: 1, lean: [.25, 0, 0, -.25], confidence: { HIGH: 1, MEDIUM: 1, LOW: 0, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 } }, pages: {} } };
 const status = { connected: true, paused: false, error: null, server: { host: 'server.apron.chat', agent: 'apron 0.4', user_id: 'bot_me' }, budget: { day: '', calls: 0 }, personality: { warmth: .5, playfulness: .5, curiosity: .5, expressiveness: .5 } };
 test('state, status and apron files pass when they hold only their allowed keys and types', () => {
   assert.equal(check('state.json', state), state);
@@ -37,6 +37,8 @@ test('an injected field, a wrong type or free text outside the owner settings is
   refused('state.json', room({ folds: [block] }), 'refused to store state.json.memory.rooms.general.folds.0.span');
   refused('state.json', room({ blocks: [{ ...block, span: 1 }] }), 'refused to store state.json.memory.rooms.general.blocks.0.span');
   refused('state.json', room({ days: {} }), 'refused to store state.json.memory.rooms.general.days');
+  refused('state.json', room({ open: { ...block, confidence: { ...block.confidence, SURE: 1 } } }), 'refused to store state.json.memory.rooms.general.open.confidence.SURE');
+  refused('state.json', room({ open: { ...block, confidence: { HIGH: 1, MEDIUM: 0, LOW: 0 } } }), 'refused to store state.json.memory.rooms.general.open.confidence.UNCERTAIN');
   refused('state.json', { ...state, memory: { rooms: {}, pages: {}, speakers: { carol: 3 } } }, 'refused to store state.json.memory.speakers');
   const page = { closed: 3, mostly: ['code'], some: [], shifts: [{ axis: 'warmth', up: true }] };
   const pages = p => ({ ...state, memory: { rooms: {}, pages: { general: p } } });

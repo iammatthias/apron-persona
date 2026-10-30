@@ -1,5 +1,5 @@
 import { chmodSync, renameSync, writeFileSync, readFileSync } from 'node:fs';
-import { axes, topics, BLOCKS, FOLDS } from './core.js';
+import { axes, topics, BLOCKS, FOLDS, CONFIDENCE } from './core.js';
 import { roles } from './models.js';
 // What never reaches DATA_DIR, and why. The schemas below leave no slot for any of it.
 export const never = {
@@ -18,10 +18,11 @@ const owner = max => string(/^[^]*$/, max);
 const object = fields => ({ fields }), map = (key, value) => ({ key, value }), nullable = of => ({ nullable: of });
 const list = (of, max, min = 0) => ({ list: of, max, min }), one = xs => v => xs.includes(v);
 const room = string(/^\S+$/, 64);
-// One block of a room's memory: counts per topic, and how many learned messages leaned how far. A fold spans FOLD blocks.
+// One block of a room's memory: counts per topic, how many learned messages leaned how far, and how many calls the
+// classifier made at each confidence. A fold spans FOLD blocks.
 const block = object({
   topics: map(one(topics), object({ messages: count, engaged: count, replies: count, chimes: count })),
-  learned: count, lean: list(number, 4, 4),
+  learned: count, lean: list(number, 4, 4), confidence: object(Object.fromEntries(CONFIDENCE.map(c => [c, count]))),
 });
 const fold = object({ ...block.fields, span: count });
 const state = object({

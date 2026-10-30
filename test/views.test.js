@@ -23,7 +23,7 @@ const events = [
   msg(8, 'general', 'learned-only', { learn_p: .5 }),
   msg(7, 'nowhere', 'other-room', { name: 'zed' }),
 ];
-const blocks = { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]] };
+const blocks = { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 1, 0, 2, 0, 0, 3]]], confidence: { HIGH: 4, MEDIUM: 2, LOW: 0, UNCERTAIN: 0 } };
 const s = {
   name: 'P', now: t, rooms: ['general', 'builds'], events, limit: '40',
   status: { connected: true, paused: false, error: null, budget: { day: '2026-10-28', calls: 40 }, personality: { warmth: .62, playfulness: .5, curiosity: .45, expressiveness: .5 } },
@@ -31,7 +31,7 @@ const s = {
   settings: restore({ settings: { persona: 'You are {name}.', norms: { general: 'be kind' } } }),
   details: { url: 'wss://h/', since: at(10), latency: 45, server: { agent: 'a/9' }, you: { user_id: 'bot_me', avatar: 'https://h/a.png' } },
   lastError: { code: 'state-refused', at: at(12) }, learning: null, preview: null,
-  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: be kind', blocks }, { id: 'builds', notes: '', blocks: { labels: ['now'], rows: [] } }],
+  memory: [{ id: 'general', notes: 'In #general lately: mostly code. Norms: be kind', blocks }, { id: 'builds', notes: '', blocks: { labels: ['now'], rows: [], confidence: { HIGH: 0, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 } } }],
   posts: [{ room_id: 'general', message_id: 'p1', log_id: String(at(19)), body: { text: 'yo' } }, { room_id: 'builds', message_id: 'p0', log_id: '5', body: { text: 'old' } }],
 };
 test('calls by role add up to the day\'s total, with what came before the counter left unsorted', () => {
@@ -137,7 +137,7 @@ test('how I think lists the gate, then each prompt part as it is sent, for the c
     ['room', 'prompt', 'what I know about the room'], ['tensions', 'prompt', 'what I hold in tension'], ['rules', 'prompt', 'the fixed rules'], ['lines', 'prompt', 'the last lines']]);
   const [answer, chimes, persona, traits, notes, held, rules, lines] = view.sections;
   assert.deepEqual([answer.settings, answer.today], [{ reply_mentions: true, reply_replies: true, reply_threshold: .7, owner: '' }, { answered: 1, not: 3 }]);
-  assert.deepEqual([chimes.settings, chimes.today], [{ organic: true, organic_threshold: .9 }, { chimed: 0, held: 0 }]);
+  assert.deepEqual([chimes.settings, chimes.today], [{ organic: true, organic_threshold: .9 }, { chimed: 0, held: 0, unsure: 0 }]);
   assert.deepEqual([persona.persona, persona.sent, persona.lesson], ['You are {name}.', 'You are P.', null]);
   assert.equal(traits.sent, "Match the room's temperament: it runs a little warmer than a typical chat.");
   assert.deepEqual([notes.sent, notes.norms, notes.blocks, notes.why], ['In #general lately: mostly code. Norms: be kind', 'be kind', blocks, "only the room I'm answering in. rebuilt every 50 messages from what it talks about, plus your norms."]);

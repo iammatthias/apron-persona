@@ -5,21 +5,22 @@ import { decision, topic, BLOCK, BLOCKS, FOLD, FOLDS, RECENT } from '../src/core
 test('a topic is one label from the fixed taxonomy, and anything else is other', () => {
   assert.deepEqual(['code', ' Deploys ', 'AI', 'banter', 'meta', 'other'].map(topic), ['code', 'deploys', 'ai', 'banter', 'meta', 'other']);
   assert.deepEqual(['kubernetes', 'carol', '', 'code review', 42, null, undefined, ['code']].map(topic), Array(8).fill('other'));
-  const reply = t => ({ choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .1, point: .2, topic: t, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] });
+  const reply = t => ({ choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .1, point: .2, confidence: 'HIGH', topic: t, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] });
   assert.equal(decision(reply('food')).topic, 'food');
   assert.equal(decision(reply('Dinner with Carol')).topic, 'other');
   assert.equal(decision(reply(undefined)).topic, 'other');
 });
-const block = (topics, learned = 0, lean = [0, 0, 0, 0]) => ({ topics: Object.fromEntries(Object.entries(topics).map(([t, messages]) => [t, { messages, engaged: 0, replies: 0, chimes: 0 }])), learned, lean });
-test('a tally counts a message by room and topic into the block being filled, and sums how far a learned style leans', () => {
+const none = { HIGH: 0, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 };
+const block = (topics, learned = 0, lean = [0, 0, 0, 0]) => ({ topics: Object.fromEntries(Object.entries(topics).map(([t, messages]) => [t, { messages, engaged: 0, replies: 0, chimes: 0 }])), learned, lean, confidence: none });
+test('a tally counts a message by room and topic into the block being filled, sums how far a learned style leans, and counts the confidence', () => {
   const m = empty();
-  tally(m, 'general', { topic: 'code', engaged: false, outcome: 'learned-only', style: [.75, .5, .25, 1] });
+  tally(m, 'general', { topic: 'code', engaged: false, outcome: 'learned-only', style: [.75, .5, .25, 1], confidence: 'HIGH' });
   tally(m, 'general', { topic: 'code', engaged: true, outcome: 'replied' });
-  tally(m, 'general', { topic: 'banter', engaged: false, outcome: 'chimed-in', style: [1, 0, .5, .5] });
-  tally(m, 'random', { topic: 'other', engaged: true, outcome: 'declined' });
+  tally(m, 'general', { topic: 'banter', engaged: false, outcome: 'chimed-in', style: [1, 0, .5, .5], confidence: 'LOW' });
+  tally(m, 'random', { topic: 'other', engaged: true, outcome: 'declined', confidence: 'sure' });
   assert.deepEqual(m, { rooms: {
-    general: { open: { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 }, banter: { messages: 1, engaged: 0, replies: 0, chimes: 1 } }, learned: 2, lean: [.75, -.5, -.25, .5] }, blocks: [], folds: [], closed: 0 },
-    random: { open: { topics: { other: { messages: 1, engaged: 1, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] }, blocks: [], folds: [], closed: 0 },
+    general: { open: { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 }, banter: { messages: 1, engaged: 0, replies: 0, chimes: 1 } }, learned: 2, lean: [.75, -.5, -.25, .5], confidence: { HIGH: 1, MEDIUM: 0, LOW: 1, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 },
+    random: { open: { topics: { other: { messages: 1, engaged: 1, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0], confidence: none }, blocks: [], folds: [], closed: 0 },
   }, pages: {} });
 });
 // Counts `n` messages of `topic` into the room, each learned with `lean` when given.
@@ -30,11 +31,11 @@ test('a block closes at BLOCK messages, the last BLOCKS stay whole, older ones f
   fill(m, 'dev', BLOCK - 1, 'code');
   assert.deepEqual([m.rooms.dev.blocks, m.rooms.dev.closed], [[], 0]);
   tally(m, 'dev', { topic: 'ai', engaged: true, outcome: 'replied' });
-  assert.deepEqual(m.rooms.dev, { open: { topics: {}, learned: 0, lean: [0, 0, 0, 0] }, blocks: [{ topics: { code: { messages: 49, engaged: 0, replies: 0, chimes: 0 }, ai: { messages: 1, engaged: 1, replies: 1, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0] }], folds: [], closed: 1 });
+  assert.deepEqual(m.rooms.dev, { open: { topics: {}, learned: 0, lean: [0, 0, 0, 0], confidence: none }, blocks: [{ topics: { code: { messages: 49, engaged: 0, replies: 0, chimes: 0 }, ai: { messages: 1, engaged: 1, replies: 1, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0], confidence: none }], folds: [], closed: 1 });
   for (let i = 0; i < BLOCKS; ++i) fill(m, 'dev', BLOCK, 'music', [.1, 0, 0, 0]);
   assert.deepEqual([m.rooms.dev.blocks.length, m.rooms.dev.closed, m.rooms.dev.folds], [BLOCKS, BLOCKS + 1, [{ ...m.rooms.dev.blocks[0], topics: { code: { messages: 49, engaged: 0, replies: 0, chimes: 0 }, ai: { messages: 1, engaged: 1, replies: 1, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0], span: 1 }]]);
   for (let i = 0; i < FOLD - 1; ++i) fill(m, 'dev', BLOCK, 'music', [.1, 0, 0, 0]);
-  assert.deepEqual(m.rooms.dev.folds, [{ topics: { code: { messages: 49, engaged: 0, replies: 0, chimes: 0 }, ai: { messages: 1, engaged: 1, replies: 1, chimes: 0 }, music: { messages: 450, engaged: 0, replies: 0, chimes: 0 } }, learned: 450, lean: [45, 0, 0, 0], span: FOLD }]);
+  assert.deepEqual(m.rooms.dev.folds, [{ topics: { code: { messages: 49, engaged: 0, replies: 0, chimes: 0 }, ai: { messages: 1, engaged: 1, replies: 1, chimes: 0 }, music: { messages: 450, engaged: 0, replies: 0, chimes: 0 } }, learned: 450, lean: [45, 0, 0, 0], confidence: none, span: FOLD }]);
   fill(m, 'dev', BLOCK, 'music', [.1, 0, 0, 0]);
   assert.deepEqual(m.rooms.dev.folds.map(f => f.span), [FOLD, 1]);
   // Nine more music blocks fill the second fold; then FOLDS folds' worth of games pushes the first two folds out.
@@ -79,8 +80,8 @@ test('the recent table shows the last blocks and the one being filled, oldest fi
   const m = empty();
   for (let i = 0; i < 8; ++i) fill(m, 'dev', BLOCK, i % 2 ? 'code' : 'music');
   fill(m, 'dev', 3, 'ai');
-  assert.deepEqual(recent(m, 'dev'), { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 50, 0, 50, 0, 50, 0]], ['music', [50, 0, 50, 0, 50, 0, 0]], ['ai', [0, 0, 0, 0, 0, 0, 3]]] });
-  assert.deepEqual(recent(empty(), 'dev'), { labels: ['now'], rows: [] });
+  assert.deepEqual(recent(m, 'dev'), { labels: ['3', '4', '5', '6', '7', '8', 'now'], rows: [['code', [0, 50, 0, 50, 0, 50, 0]], ['music', [50, 0, 50, 0, 50, 0, 0]], ['ai', [0, 0, 0, 0, 0, 0, 3]]], confidence: none });
+  assert.deepEqual(recent(empty(), 'dev'), { labels: ['now'], rows: [], confidence: none });
   const one = empty(); fill(one, 'dev', 2, 'food');
-  assert.deepEqual(recent(one, 'dev'), { labels: ['now'], rows: [['food', [2]]] });
+  assert.deepEqual(recent(one, 'dev'), { labels: ['now'], rows: [['food', [2]]], confidence: none });
 });

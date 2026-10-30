@@ -147,11 +147,12 @@ function now(m, place) {
   return `<div class="now"><div>${needs(m.needs)}${cards ? `<div class="cards" id="cards" data-live>${cards}</div>` : ''}</div>
 <aside><h2>the bot <a href="/?view=bot">tune</a></h2><div class="card botcard"><p class="persona">${escape(m.bot.persona)}</p>${bars(m.bot.personality)}<p class="small">${escape(m.bot.drift)}</p><p class="small">${escape(m.bot.triggers)}</p></div></aside></div>`;
 }
-function blocks({ labels, rows: topics }) {
+function blocks({ labels, rows: topics, confidence }) {
   if (!topics.length) return '<p class="small">no messages counted yet.</p>';
   const head = labels.map(l => `<th title="${l === 'now' ? 'the block being filled' : `block ${l}`}">${l}</th>`).join('');
   const body = topics.map(([t, n]) => `<tr><th>${escape(t)}</th>${n.map(x => x ? `<td>${x}</td>` : '<td class="z">·</td>').join('')}</tr>`).join('');
-  return `<details><summary>last ${plural(labels.length, 'block')} by topic, ${BLOCK} messages each</summary><table class="week"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table></details>`;
+  const sure = Object.entries(confidence).map(([c, n]) => `${n} ${c.toLowerCase()}`).join(', ');
+  return `<details><summary>last ${plural(labels.length, 'block')} by topic, ${BLOCK} messages each</summary><table class="week"><thead><tr><th></th>${head}</tr></thead><tbody>${body}</tbody></table><p class="small">how sure I was of my own calls over these: ${sure}.</p></details>`;
 }
 const norms = (place, id, text) => post(place, '/norms', `<input type="hidden" name="room_id" value="${escape(id)}"><label>norms for #${escape(id)}, which I'll honour<textarea class="short" name="norms" maxlength="1000">${escape(text)}</textarea></label>
 <div class="bar"><button class="save">save</button><span>${text.length} of 1000</span></div>`);
@@ -189,7 +190,7 @@ const thinking = {
 <label>my owner's user id, never rested on<input name="owner" value="${escape(x.settings.owner ?? '')}" placeholder="blank: guessed from my own id" maxlength="128"></label>
 <div class="bar"><button class="save">save</button><span>today: ${x.today.answered} answered, ${x.today.not} not</span></div>`)}</div>`,
   chime: (x, place) => `<div class="card">${post(place, '/settings', `${check(x.settings, 'organic', 'chime in unprompted')}${bar(x.settings, 'organic_threshold', 'chime-in bar')}
-<div class="bar"><button class="save">save</button><span>today: ${plural(x.today.chimed, 'chime-in')}, ${x.today.held} held back</span></div>`)}</div>`,
+<div class="bar"><button class="save">save</button><span>today: ${plural(x.today.chimed, 'chime-in')}, ${x.today.held} held back, ${x.today.unsure} unsure of myself</span></div>`)}</div>`,
   persona: (x, place, d) => `<div class="card">${post(place, '/persona', `<label>who I am, in my own words<textarea name="persona" maxlength="4000" required>${escape(x.persona)}</textarea></label>
 <label>why this change, if you like<input name="reason" maxlength="200" placeholder="optional"></label>
 <div class="bar"><button class="save">save</button><span>${x.persona.length} of 4000</span></div>`)}${post(place, '/persona/reset', '<button class="link">reset to the default persona</button>')}

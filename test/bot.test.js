@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { socket } from './fakes.js';
 import { snapshot } from '../src/http.js';
 import { needs } from '../src/views.js';
-const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
+const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9, reply: .9, point: .9, confidence: 'HIGH', warmth: 'balanced', playfulness: 'balanced', curiosity: 'balanced', expressiveness: 'balanced' }) } }] };
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const held = tensionsPrompt(settings.tensions.default());
 const defaults = { persona: settings.persona.default(), tensions: settings.tensions.default(), revisions: [], paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
@@ -219,16 +219,16 @@ test('a frame before sign-in is stale, and a fifth queued frame is busy', async 
 test('duplicates and a sender already counted are skipped before any call', async () => {
   let calls = 0;
   const f = connected(async (...a) => { ++calls; return model()(...a); });
-  assert.deepEqual(await deliver(f, {}, 'nice weather'), seen('learned-only', { addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f, {}, 'nice weather'), seen('learned-only', { addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.deepEqual(await deliver(f, {}, 'nice  WEATHER'), seen('duplicate', { addressed: undefined }));
   assert.deepEqual(await deliver(f, {}, 'something else'), seen('rate-limited', { addressed: undefined }));
   assert.equal(calls, 1);
-  assert.deepEqual(await deliver(f, {}, 'and you @bot_me'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9 }));
+  assert.deepEqual(await deliver(f, {}, 'and you @bot_me'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH' }));
 });
 test('a message event names its sender, and a pong times the ping', async () => {
   const f = connected(model());
   assert.deepEqual(await deliver(f, { from: { user_id: 'carol', name: 'Carol '.repeat(20) } }, 'nice weather'),
-    seen('learned-only', { name: 'Carol '.repeat(20).slice(0, 64), addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+    seen('learned-only', { name: 'Carol '.repeat(20).slice(0, 64), addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(f.bot.details().latency, null);
   f.bot.tick();
   assert.equal(f.ws.sent.at(-1).method, 'ping');
@@ -237,10 +237,10 @@ test('a message event names its sender, and a pong times the ping', async () => 
   assert.ok(f.bot.details().latency >= 40 && f.bot.details().latency < 1000);
 });
 test('a mention can be declined or out of budget, and a second one right after the first is answered too', async () => {
-  assert.deepEqual(await deliver(connected(model({ scores: { reply: .4 } }))), seen('declined', { learn_p: .9, reply_p: .4, point_p: .9, style: flat, need: .7 }));
+  assert.deepEqual(await deliver(connected(model({ scores: { reply: .4 } }))), seen('declined', { learn_p: .9, reply_p: .4, point_p: .9, confidence: 'HIGH', style: flat, need: .7 }));
   const f = connected(model());
-  assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
-  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'again @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'dave' }]);
+  assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
+  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'again @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat })[0], from: 'dave' }]);
   const g = connected(model());
   g.bot.budget = { day: new Date().toISOString().slice(0, 10), calls: 40 };
   assert.deepEqual(await deliver(g), seen('budget'));
@@ -249,9 +249,9 @@ test('classification and reply failures carry their code', async () => {
   assert.deepEqual(await deliver(connected(model({ classify: 'not json' })), {}, 'just chatting'), seen('classify-failed', { addressed: undefined, detail: 'invalid-decision' }));
   assert.deepEqual(await deliver(connected(model({ status: 500 })), {}, 'just chatting'), seen('classify-failed', { addressed: undefined, detail: 'inference-500' }));
   const empty = connected(model({ text: '  ' }));
-  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(empty.ws.sent.filter(f => f.method === 'message').length, 0);
-  assert.deepEqual(await deliver(connected(model({ replyStatus: 503 }))), seen('reply-failed', { learn_p: .9, reply_p: .9, point_p: .9, style: flat, detail: 'inference-503' }));
+  assert.deepEqual(await deliver(connected(model({ replyStatus: 503 }))), seen('reply-failed', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat, detail: 'inference-503' }));
 });
 test('only messages that engage the bot keep their text, and a reply records what was posted', async () => {
   const quiet = 'quiet-canary', engaged = 'engaged-canary @bot_me';
@@ -266,7 +266,7 @@ test('only messages that engage the bot keep their text, and a reply records wha
   const f = connected(model({ text: ' model-canary ' }));
   await deliver(f, { reply_to: { message_id: 'm1' } }, engaged);
   const [{ ms, via, ...message }, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
-  assert.deepEqual(message, { kind: 'message', room: 'general', message_id: String(ids), reply_to: 'm1', from: 'carol', addressed: 'mention', text: engaged, outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, style: flat });
+  assert.deepEqual(message, { kind: 'message', room: 'general', message_id: String(ids), reply_to: 'm1', from: 'carol', addressed: 'mention', text: engaged, outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'post', 'total']);
   assert.deepEqual(via, { judge: 'd', compose: 'c' });
   const id = f.ws.sent.at(-1).id;
@@ -364,27 +364,27 @@ test('a mention or a reply whose trigger is off is let be, without a classifier 
   let calls = 0;
   const f = connected(async (...a) => { ++calls; return model()(...a); });
   f.bot.configure({ reply_mentions: false });
-  assert.deepEqual(await deliver(f), seen('trigger-off', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f), seen('trigger-off', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.deepEqual(await deliver(f, {}, 'again @bot_me'), seen('trigger-off'));
   assert.equal(calls, 1);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, 'again @bot_me');
   const g = connected(model());
-  assert.deepEqual(await deliver(g), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(g), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   const mine = g.bot.log.list().find(e => e.kind === 'posted').message_id;
   g.bot.configure({ reply_replies: false });
-  assert.deepEqual(await deliver(g, { from: { user_id: 'dave' }, reply_to: { message_id: mine } }, 'meaning what'), [{ ...seen('trigger-off', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'dave' }]);
-  assert.deepEqual(await deliver(g, { from: { user_id: 'erin' }, reply_to: { message_id: mine } }, 'meaning what @bot_me'), [{ ...seen('replied', { reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'erin' }]);
+  assert.deepEqual(await deliver(g, { from: { user_id: 'dave' }, reply_to: { message_id: mine } }, 'meaning what'), [{ ...seen('trigger-off', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat })[0], from: 'dave' }]);
+  assert.deepEqual(await deliver(g, { from: { user_id: 'erin' }, reply_to: { message_id: mine } }, 'meaning what @bot_me'), [{ ...seen('replied', { reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat })[0], from: 'erin' }]);
   g.bot.configure({ reply_replies: true, reply_mentions: false });
-  assert.deepEqual(await deliver(g, { from: { user_id: 'finn' }, reply_to: { message_id: mine } }, 'and @bot_me'), [{ ...seen('replied', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, style: flat })[0], from: 'finn' }]);
+  assert.deepEqual(await deliver(g, { from: { user_id: 'finn' }, reply_to: { message_id: mine } }, 'and @bot_me'), [{ ...seen('replied', { addressed: 'reply', reply_to: mine, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat })[0], from: 'finn' }]);
   assert.equal(posts(g.ws).length, 3);
 });
 test('the reply bar follows the settings, and the clock never gates a mention', async () => {
   const f = connected(model({ scores: { reply: .74 } }));
   f.bot.configure({ reply_threshold: '0.75' });
-  assert.deepEqual(await deliver(f), seen('declined', { learn_p: .9, reply_p: .74, point_p: .9, style: flat, need: .75 }));
+  assert.deepEqual(await deliver(f), seen('declined', { learn_p: .9, reply_p: .74, point_p: .9, confidence: 'HIGH', style: flat, need: .75 }));
   f.bot.configure({ reply_threshold: '0.70' });
   for (const [user_id, text] of [['dave', 'one @bot_me'], ['erin', 'two @bot_me'], ['finn', 'three @bot_me']])
-    assert.deepEqual(await deliver(f, { from: { user_id } }, text), [{ ...seen('replied', { learn_p: .9, reply_p: .74, point_p: .9, style: flat })[0], from: user_id }]);
+    assert.deepEqual(await deliver(f, { from: { user_id } }, text), [{ ...seen('replied', { learn_p: .9, reply_p: .74, point_p: .9, confidence: 'HIGH', style: flat })[0], from: user_id }]);
   assert.equal(posts(f.ws).length, 3);
   assert.throws(() => f.bot.configure({ cooldown: '60' }), { message: 'unknown setting cooldown' });
 });
@@ -392,10 +392,10 @@ const unaddressed = (outcome, extra) => seen(outcome, { addressed: undefined, le
 test('a chime-in posts a plain message, records it as posted, and keeps the text it answered', async () => {
   const prompts = [], answer = model({ scores: { reply: .93 }, text: 'the broth is the point' });
   const f = connected(async (url, init) => { prompts.push(JSON.parse(init.body).messages.at(-1).content); return answer(url, init); });
-  assert.deepEqual(await deliver(f, {}, 'ramen tonight?'), unaddressed('learned-only', { reply_p: .93, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f, {}, 'ramen tonight?'), unaddressed('learned-only', { reply_p: .93, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(posts(f.ws).length, 0);
   f.bot.configure({ organic: 'on' });
-  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'anyone tried the new ramen place'), [{ ...unaddressed('chimed-in', { reply_p: .93, point_p: .9, style: flat })[0], from: 'dave' }]);
+  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'anyone tried the new ramen place'), [{ ...unaddressed('chimed-in', { reply_p: .93, point_p: .9, confidence: 'HIGH', style: flat })[0], from: 'dave' }]);
   assert.deepEqual(posts(f.ws), [{ room_id: 'general', body: { text: 'the broth is the point' } }]);
   assert.equal(prompts.at(-1), `carol: ramen tonight?\ndave: anyone tried the new ramen place\n\n${chime}`);
   const [message, posted] = f.bot.log.list().slice(-2).map(({ at, ...e }) => e);
@@ -439,7 +439,7 @@ test('organic is held back below its bar, waits four messages after a post, and 
 test('a welcome chime-in with nothing specific to add stays quiet and keeps no text', async () => {
   const f = connected(model({ scores: { reply: .95, point: .42 } }));
   f.bot.configure({ organic: 'on' });
-  assert.deepEqual(await deliver(f, {}, 'long day'), unaddressed('nothing-to-add', { reply_p: .95, point_p: .42, style: flat, need: .9 }));
+  assert.deepEqual(await deliver(f, {}, 'long day'), unaddressed('nothing-to-add', { reply_p: .95, point_p: .42, confidence: 'HIGH', style: flat, need: .9 }));
   assert.equal(posts(f.ws).length, 0);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
   assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).point_p, .42);
@@ -454,7 +454,7 @@ test('the room memory counts only messages it classified, by block and topic, wi
     outcomes.push((await deliver(f, params, text))[0].outcome);
   assert.deepEqual(outcomes, ['chimed-in', 'duplicate', 'rate-limited', 'replied', 'other-room', 'from-bot']);
   assert.equal(calls, 2);
-  assert.deepEqual(f.bot.memory, { rooms: { general: { open: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0] }, blocks: [], folds: [], closed: 0 } }, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
+  assert.deepEqual(f.bot.memory, { rooms: { general: { open: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0], confidence: { HIGH: 2, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 } }, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
   const failed = connected(model({ status: 500 }));
   assert.equal((await deliver(failed))[0].outcome, 'replied');
   assert.deepEqual(failed.bot.memory.rooms, {});
@@ -502,12 +502,12 @@ test('a failed or empty reply moves to the next model, and the chain ends with t
     ? model()(url, init)
     : ++replies === 1 ? new Response('', { status: 503 }) : Response.json({ choices: [{ message: { content: 'second try' } }] });
   const f = connected(flaky);
-  assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(replies, 2);
   assert.equal(f.ws.sent.filter(x => x.method === 'message').at(-1).params.body.text, 'second try');
   let calls = 0;
   const empty = connected(async (url, init) => { if (JSON.parse(init.body).temperature !== 0) ++calls; return model({ text: '' })(url, init); });
-  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(empty), seen('reply-empty', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(calls, 2);
 });
 test('a reply is written from the room history Apron holds, up to the message answered', async () => {
@@ -570,13 +570,13 @@ test('a refused state write is recorded and the bot carries on', () => {
 });
 test('a message that names the bot without tagging it is answered like a mention', async () => {
   const f = connected(model());
-  assert.deepEqual(await deliver(f, {}, 'bot, you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f, {}, 'bot, you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(f.ws.sent.filter(x => x.method === 'message').length, 1);
 });
 test('alone with the bot, or just answered by it, a sender is talking to it', async () => {
   const solo = connected(model());
   solo.bot.heard.clear();
-  assert.deepEqual(await deliver(solo, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(solo, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   const crowd = connected(model({ scores: { learn: .9, reply: .9, point: .1 } }));
   crowd.bot.configure({ organic: 'on' });
   assert.equal((await deliver(crowd, {}, 'lunch anyone?'))[0].outcome, 'nothing-to-add');
@@ -679,11 +679,11 @@ test('who spoke is kept by position: a sender drops out of the room record once 
   const f = connected(model());
   for (let i = 0; i < ALONE - 1; ++i) f.bot.hear(spoke('zed'));
   // zed is the only other voice, so far; one more of zed's and carol is talking to the bot alone... except carol herself counts.
-  assert.deepEqual(await deliver(f, {}, 'hello'), seen('learned-only', { addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f, {}, 'hello'), seen('learned-only', { addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   for (let i = 0; i < ALONE; ++i) f.bot.hear(spoke('carol'));
   // Reading how a message addresses the bot records nothing: only its arrival does.
   f.bot.addressed({ room_id: 'general', message_id: 'x', from: { user_id: 'dave' }, body: { text: 'hi' } });
-  assert.deepEqual(await deliver(f, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  assert.deepEqual(await deliver(f, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
 });
 test('a room the server refuses is left alone until the next sign-in, and needs you says so', async () => {
   const sockets = [], tick = () => new Promise(r => setTimeout(r, 0));
@@ -816,4 +816,19 @@ test('a repeated text is a duplicate while it is among the last SEEN distinct on
   for (let i = 0; i < SEEN; ++i) await deliver(f, { from: { user_id: `v${i}` } }, `distinct ${i}`);
   assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'nice weather'))[0].outcome, 'learned-only');
   assert.equal(f.bot.seen.size, SEEN);
+});
+test('an unsure model keeps the bot from chiming in, with a margin that says so, and the room counts how sure it was', async () => {
+  const f = connected(model({ scores: { reply: .95, point: .95, confidence: 'LOW' } }));
+  f.bot.configure({ organic: 'on' });
+  assert.deepEqual(await deliver(f, {}, 'long day'), unaddressed('unsure', { reply_p: .95, point_p: .95, confidence: 'LOW', style: flat }));
+  assert.equal(posts(f.ws).length, 0);
+  assert.equal(f.bot.log.list().filter(e => e.kind === 'message').at(-1).text, undefined);
+  assert.equal(margins.unsure.say({}), "I could have chimed in, but I wasn't sure enough of myself.");
+  // A mention is answered whatever the model thinks of its own call.
+  assert.deepEqual(await deliver(f, { from: { user_id: 'dave' } }, 'hey @bot_me'), [{ ...seen('replied', { learn_p: .9, reply_p: .95, point_p: .95, confidence: 'LOW', style: flat })[0], from: 'dave' }]);
+  const g = connected(model({ scores: { reply: .95, point: .95, confidence: 'MEDIUM' } }));
+  g.bot.configure({ organic: 'on' });
+  assert.equal((await deliver(g, {}, 'long day'))[0].outcome, 'chimed-in');
+  assert.deepEqual(f.bot.memory.rooms.general.open.confidence, { HIGH: 0, MEDIUM: 0, LOW: 2, UNCERTAIN: 0 });
+  assert.deepEqual(g.bot.memory.rooms.general.open.confidence, { HIGH: 0, MEDIUM: 1, LOW: 0, UNCERTAIN: 0 });
 });

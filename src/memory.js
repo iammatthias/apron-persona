@@ -1,4 +1,4 @@
-import { axes, leanings, topics, BLOCK, BLOCKS, FOLD, FOLDS, RECENT } from './core.js';
+import { axes, leanings, topics, BLOCK, BLOCKS, FOLD, FOLDS, RECENT, CONFIDENCE } from './core.js';
 import { list } from './settings.js';
 // The room memory: per room, counts only, in blocks of BLOCK messages the bot classified there. No speaker and no text:
 // a topic is one fixed label. A room holds the block being filled (open), the last BLOCKS closed blocks whole, before
@@ -6,7 +6,7 @@ import { list } from './settings.js';
 // digest as of its last closed block, from which onepager() writes the prompt's room notes.
 export const empty = () => ({ rooms: {}, pages: {} });
 const round = x => Math.round(x * 1000) / 1000;
-const block = () => ({ topics: {}, learned: 0, lean: [0, 0, 0, 0] });
+const block = () => ({ topics: {}, learned: 0, lean: [0, 0, 0, 0], confidence: Object.fromEntries(CONFIDENCE.map(c => [c, 0])) });
 const counts = () => ({ messages: 0, engaged: 0, replies: 0, chimes: 0 });
 function merge(into, b) {
   for (const t of Object.keys(b.topics).sort()) {
@@ -15,19 +15,22 @@ function merge(into, b) {
   }
   into.learned += b.learned;
   into.lean = into.lean.map((x, i) => round(x + b.lean[i]));
+  for (const c of CONFIDENCE) into.confidence[c] += b.confidence[c];
   return into;
 }
 const total = b => Object.values(b.topics).reduce((n, c) => n + c.messages, 0);
 // Counts one classified message into the room's open block: its topic, whether it addressed the bot, what the bot did,
-// and how far the style learned from it leans from neutral on each axis. The BLOCKth message closes the block.
-export function tally(memory, room, { topic, engaged, outcome, style }) {
+// how far the style learned from it leans from neutral on each axis, and how sure the classifier was of its own call.
+// The BLOCKth message closes the block.
+export function tally(memory, room, { topic, engaged, outcome, style, confidence }) {
   const r = memory.rooms[room] ??= { open: block(), blocks: [], folds: [], closed: 0 };
   const c = r.open.topics[topic] ??= counts();
   ++c.messages;
   if (engaged) ++c.engaged;
   if (outcome === 'replied') ++c.replies;
   if (outcome === 'chimed-in') ++c.chimes;
-  if (style) merge(r.open, { topics: {}, learned: 1, lean: style.map(v => v - .5) });
+  if (style) merge(r.open, { topics: {}, learned: 1, lean: style.map(v => v - .5), confidence: block().confidence });
+  if (CONFIDENCE.includes(confidence)) ++r.open.confidence[confidence];
   if (total(r.open) >= BLOCK) close(r);
   return memory;
 }
@@ -65,12 +68,14 @@ export function onepager(room, page, norms = '') {
   return [what && `In #${room} lately: ${what}.`, runs, norms && `Norms: ${norms}`].filter(Boolean).join(' ');
 }
 // A room's last closed blocks, up to `shown` columns with the block being filled ("now") last, oldest first: each
-// topic's message count per block, busiest topic first. Closed blocks are labelled by their number in the room.
+// topic's message count per block, busiest topic first, and how sure the classifier was over those blocks. Closed
+// blocks are labelled by their number in the room.
 export function recent(memory, room, shown = 7) {
   const r = memory.rooms[room] ?? { open: block(), blocks: [], closed: 0 };
   const closed = r.blocks.slice(-(shown - 1));
   const columns = [...closed.map((b, i) => ({ label: String(r.closed - closed.length + i + 1), block: b })), { label: 'now', block: r.open }];
   const all = n => n.reduce((a, b) => a + b, 0);
   const rows = topics.map(t => [t, columns.map(c => c.block.topics[t]?.messages ?? 0)]).filter(([, n]) => all(n));
-  return { labels: columns.map(c => c.label), rows: rows.sort((a, b) => all(b[1]) - all(a[1])) };
+  const confidence = sum(columns.map(c => c.block)).confidence;
+  return { labels: columns.map(c => c.label), rows: rows.sort((a, b) => all(b[1]) - all(a[1])), confidence };
 }
