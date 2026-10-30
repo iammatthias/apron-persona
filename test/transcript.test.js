@@ -49,7 +49,7 @@ test('the view model turns events into each room\'s rows with a margin per outco
     { kind: 'post', at: 3, room: 'general', message_id: 'p3', text: 'Morning!', deleted: true, margin: 'I deleted this.' },
     quiet(5, 'learned-only', 'ben', 'learned. a little more playful. (0.91)', { learned: true }),
     quiet(6, 'learned-only', 'ben', "didn't learn. learn chance 0.42, I need 0.80."),
-    quiet(7, 'rate-limited', 'ben', 'already learned from ben in the last 5 min.'),
+    quiet(7, 'rate-limited', 'ben', 'already sized ben up within the last 10 messages here.'),
     quiet(8, 'duplicate', 'ben', "I'd seen this exact text already."),
     said(9, 'declined', 'ana', '@bot summarize?', "didn't answer. reply chance 0.42, I need 0.75.", 'warn'),
     said(11, 'budget', 'ben', '@bot hi', "I hit the daily cap you set (DAILY_CALLS), so I let it pass.", 'warn'),

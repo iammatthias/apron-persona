@@ -1,11 +1,10 @@
-import { named, conversing, classify, decision, fresh, migrate, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW } from './core.js';
+import { named, conversing, classify, decision, fresh, migrate, learn, seed, persona, fingerprint, incoming, addressing, trigger, LOOP_WINDOW, ALONE, FOLLOWUP, LEARN_EVERY, SEEN, CONTEXT } from './core.js';
 import { settings, restore, systemPrompt, roomPrompt, line, recall, reason, REVISIONS } from './settings.js';
 import { Log, event, stages } from './events.js';
 import { read, chunk, synthesize } from './learn.js';
 import { empty, tally, roll, dayOf, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
 import * as models from './models.js';
-const TTL = 300000;
 // A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
 const DEADLINE = 25000, TYPING = 6000;
 // Failures that are outcomes in their own right, with no detail to add.
@@ -32,8 +31,10 @@ export class Bot {
     this.spent = ok('spent', saved.spent) ? saved.spent : {};
     this.settings = restore(saved);
     this.memory = roll(ok('memory', saved.memory) ? saved.memory : empty(), dayOf(Date.now()));
-    this.context = []; this.seen = new Map(); this.people = new Map();
-    this.bots = new Set(); this.own = new Set(); this.newest = new Map(); this.drafting = new Map(); this.heard = new Map(); this.answered = new Map(); this.error = null; this.lastError = null;
+    // In memory only, bounded by count: the last CONTEXT lines seen, the last SEEN distinct texts read, and per room what
+    // was heard by position (hear()).
+    this.context = []; this.seen = new Set(); this.heard = new Map();
+    this.bots = new Set(); this.own = new Set(); this.newest = new Map(); this.drafting = new Map(); this.error = null; this.lastError = null;
     // Per room: who took each of its last LOOP_WINDOW turns, oldest first. null is a message from someone else; a string
     // is a turn of the bot's own (a post, or a draft its sender talked over), naming whom it answered ('' for a
     // chime-in). A message dropped before it is handled (busy, paused) takes no turn. Turns answering the owner never
@@ -69,9 +70,8 @@ export class Bot {
     // A signed-in socket that the network broke comes back in seconds, not at the next minute tick.
     if (up && /^close-|^error$/.test(reason)) setTimeout(() => this.ws || this.connect(), this.retry).unref?.();
   }
-  // Runs every minute: reconnects, pings, expires context, and checkpoints.
+  // Runs every minute: reconnects, pings, and checkpoints.
   tick() {
-    this.prune();
     if (this.dirty) this.save();
     if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.drop('auth-timeout');
     if (!this.ws && !this.env.APRON_TOKEN) this.fail('no-apron-token');
@@ -189,20 +189,31 @@ export class Bot {
     await this.call('message', { room_id, message_id, deleted: true });
     this.record('deleted', { room: room_id, message_id });
   }
-  // Who spoke when, per room, in memory only. Recorded once per message, as it arrives.
+  // A room's record of what the bot heard, by position: count is how many messages from others it has heard there,
+  // senders who sent the last ALONE of them, answered at what count it last answered each sender, and judged at what
+  // count it last sized each sender up for learning. Entries past their window are dropped as the count moves on.
+  room(id) {
+    let r = this.heard.get(id);
+    if (!r) this.heard.set(id, r = { count: 0, senders: [], answered: new Map(), judged: new Map() });
+    return r;
+  }
+  // Records one message from someone else as it arrives, once.
   hear(p) {
     if (incoming(p, this.self, this.bots, this.rooms)) return;
-    const now = Date.now(), heard = this.heard.get(p.room_id) ?? new Map();
-    heard.set(p.from.user_id, now); this.heard.set(p.room_id, heard);
-    for (const [id, at] of heard) if (now - at > 30 * 60000) heard.delete(id);
+    const r = this.room(p.room_id);
+    ++r.count; r.senders = [...r.senders, p.from.user_id].slice(-ALONE);
+    for (const [id, at] of r.answered) if (r.count - at > FOLLOWUP) r.answered.delete(id);
+    for (const [id, at] of r.judged) if (r.count - at >= LEARN_EVERY) r.judged.delete(id);
   }
+  // The last CONTEXT lines seen, for a reply when the room's history is slow to arrive.
+  remember(entry) { this.context = [...this.context, entry].slice(-CONTEXT); }
   // How a message reaches the bot, from the room as it stands: a sender alone with the bot, or just answered by it,
-  // is talking to it. Reads who spoke when; hear() writes it.
+  // is talking to it. Reads the room record; hear() writes it.
   addressed(p) {
     const text = typeof p?.body?.text === 'string' ? p.body.text.slice(0, 2000) : '';
     const mention = !!this.self && (p?.body?.mentions?.includes(this.self) === true || text.includes(`@${this.self}`) || named(text, [this.name, this.self]));
     const room = p?.room_id, user = p?.from?.user_id;
-    const talking = !incoming(p, this.self, this.bots, this.rooms) && conversing(this.heard.get(room) ?? new Map(), this.answered.get(room) ?? new Map(), user, Date.now());
+    const talking = !incoming(p, this.self, this.bots, this.rooms) && conversing(this.room(room), user);
     return addressing(this.settings, mention || talking, this.own.has(p?.reply_to?.message_id));
   }
   connect() {
@@ -272,12 +283,6 @@ export class Bot {
     this.unavailable.clear();
     for (const room_id of this.rooms) this.call('room_join', { room_id }).catch(e => this.refuse(room_id, e));
   }
-  prune() {
-    const now = Date.now();
-    this.context = this.context.filter(x => now - x.at < TTL).slice(-12);
-    for (const map of [this.seen, this.people]) for (const [k, v] of map) if (now - v > TTL) map.delete(k);
-    while (this.seen.size > 512) this.seen.delete(this.seen.keys().next().value);
-  }
   // Calls left today. spent sorts the same day's calls by role: every request, and which of them were hedges or retries.
   left() {
     const day = new Date().toISOString().slice(0, 10);
@@ -318,19 +323,18 @@ export class Bot {
   // Everything the message starts stops when it is settled or when the deadline or the connection ends it.
   async consider(p, addressed) {
     const connection = this.ws, began = performance.now();
-    this.prune();
     // This message is no longer pending, so it is no longer anyone's newest; a newer one from its sender supersedes it.
     const pending = this.newest.get(p.room_id), mine = pending?.get(p.from.user_id) === p.message_id;
     if (mine) pending.delete(p.from.user_id);
-    const text = p.body.text.slice(0, 2000), now = Date.now();
+    const text = p.body.text.slice(0, 2000);
     const hash = await fingerprint(this.env.HASH_SECRET, text);
     if (this.seen.has(hash)) return { outcome: 'duplicate' };
-    this.seen.set(hash, now);
+    this.seen.add(hash);
+    while (this.seen.size > SEEN) this.seen.delete(this.seen.values().next().value);
     const speaker = (typeof p.from.name === 'string' && p.from.name.replace(/\s+/g, ' ').trim().slice(0, 64)) || p.from.user_id;
-    this.context.push({ room: p.room_id, at: now, name: speaker, content: text });
-    const participant = await fingerprint(this.env.HASH_SECRET, p.from.user_id);
-    // One learning contribution per participant per five minutes.
-    const eligible = !this.people.has(participant);
+    this.remember({ room: p.room_id, name: speaker, content: text });
+    // One lesson per sender per LEARN_EVERY messages of the room; hear() drops a sender once their window has passed.
+    const room = this.room(p.room_id), eligible = !room.judged.has(p.from.user_id);
     // The room's last turns as they stand, before this message takes one: how many are the bot's own (none, to its
     // owner), and how many messages have followed its last post, this one included.
     const log = this.turns.get(p.room_id) ?? [], last = log.findLastIndex(x => x !== null);
@@ -366,7 +370,7 @@ export class Bot {
     const slot = user => { if (user === p.from.user_id && !posting) run.abort(Error('superseded')); };
     this.drafting.set(p.room_id, slot);
     try {
-      const result = await this.pipeline(p, { text, addressed, eligible, participant, since, turns, now, connection, signal: run.signal, timed, asked, post: () => posting = true });
+      const result = await this.pipeline(p, { text, addressed, eligible, since, turns, connection, signal: run.signal, timed, asked, post: () => posting = true });
       const spans = Object.fromEntries(stages.filter(k => ms[k] !== undefined).map(k => [k, ms[k]]));
       return took({ ...result, ms: { ...spans, total: Math.round(performance.now() - began) }, ...Object.keys(via).length ? { via } : {}, ...hedged.length ? { hedged } : {} }, spent);
     } finally {
@@ -379,7 +383,7 @@ export class Bot {
   // The stages: context (the room's history), judge (the classifier) and compose (the reply) run together for a
   // message that addresses the bot, and the judge's verdict gates only the post, so a decline aborts the draft.
   // For any other message the judge decides first whether a reply is drafted at all.
-  async pipeline(p, { text, addressed, eligible, participant, since, turns, now, connection, signal, timed, asked, post }) {
+  async pipeline(p, { text, addressed, eligible, since, turns, connection, signal, timed, asked, post }) {
     const failed = (outcome, e, scores = {}) => plain.has(e.message) ? { outcome: e.message, ...scores } : { outcome, ...scores, detail: e.message };
     // Would the surest possible verdict post? If not (a trigger off, chiming in off, the bot posted too lately or is resting), nothing is read or drafted ahead.
     const hopeful = !!trigger(this.settings, { addressed, eligible, reply_p: 1, point_p: 1, since, turns }).respond;
@@ -421,7 +425,7 @@ export class Bot {
     const learned = eligible && !unsized && result.learn >= .8;
     // Any classification spends this sender's turn to be learned from, not only one that learned, so an eligible
     // sender isn't judged on every message until one clears the learning bar.
-    if (eligible && !unsized) this.people.set(participant, now);
+    if (eligible && !unsized) this.room(p.room_id).judged.set(p.from.user_id, this.room(p.room_id).count);
     if (learned) {
       learn(this.state, result.vector, result.learn); this.dirty = true;
     }
@@ -442,13 +446,9 @@ export class Bot {
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
     // What the room holds once the post has gone out: the bot answered this sender, and said this. consider() records the turn.
     const spoke = () => {
-      const at = Date.now();
-      if (!organic) {
-        const answered = this.answered.get(p.room_id) ?? new Map();
-        answered.set(p.from.user_id, at); this.answered.set(p.room_id, answered);
-        for (const [id, when] of answered) if (at - when > 10 * 60000) answered.delete(id);
-      }
-      this.context.push({ room: p.room_id, at, name: 'you', content });
+      const room = this.room(p.room_id);
+      if (!organic) room.answered.set(p.from.user_id, room.count);
+      this.remember({ room: p.room_id, name: 'you', content });
     };
     const where = organic ? { organic: true } : { reply_to: p.message_id };
     let ack;

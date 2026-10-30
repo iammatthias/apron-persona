@@ -2,7 +2,7 @@ import { dailyCap } from './bot.js';
 import { transcript, fold, today } from './transcript.js';
 import { margins, churn } from './events.js';
 import { promptParts, roomPrompt, recall, list, tensionsForm } from './settings.js';
-import { axes, leanings, LOOP_TURNS, LOOP_WINDOW } from './core.js';
+import { axes, leanings, LOOP_TURNS, LOOP_WINDOW, LEARN_EVERY } from './core.js';
 import { roles } from './models.js';
 import { dayOf } from './memory.js';
 // The admin portal's view models: plain data computed from one snapshot of the bot, which the dashboard renders.
@@ -139,7 +139,7 @@ export function bot(s, id) {
       why: "a mention, a reply to me, or the next line from someone I'm talking with. a model call scores how well a reply would fit, and I answer when the score clears the bar. if someone keeps going, I answer their latest.",
       today: { answered: count('replied'), not: today(s.events, s.now).unanswered } },
     { id: 'chime', part: 'gate', title: 'do I speak up unprompted?', settings: pick('organic', 'organic_threshold'),
-      why: `I score messages nobody asked me about to learn from them, one per person every 5 minutes. I speak up when the chance it'd be welcome and the chance I have something specific to add both clear the bar, and only once at least four messages from others have come in since I last spoke here.`,
+      why: `I score messages nobody asked me about to learn from them, one per person every ${LEARN_EVERY} messages of the room. I speak up when the chance it'd be welcome and the chance I have something specific to add both clear the bar, and only once at least four messages from others have come in since I last spoke here.`,
       today: { chimed: count('chimed-in'), held: count('held-back', 'nothing-to-add', 'spoke-last') } },
     { id: 'persona', part: 'prompt', title: 'who I am', why: `the first thing the model reads. {name} becomes ${s.name}.`, sent: persona, persona: set.persona, lesson: lesson(s), revisions: history(set.revisions) },
     { id: 'traits', part: 'prompt', title: 'what the room made me', why: 'learned from the messages I read. not editable: it moves as the room talks.', sent: style, personality: p, drift: drift(p) },

@@ -34,7 +34,7 @@ function rig({ capabilities = ['activity'], calls = '40' } = {}) {
   const history = () => ws.sent.filter(f => f.method === 'history').length;
   const roles = () => l.calls.map(c => c.body.temperature === 0 ? 'judge' : 'compose');
   // Someone else spoke here lately, so a lone sender is not taken as talking to the bot.
-  const crowd = () => bot.heard.set('general', new Map([['u_other', Date.now()]]));
+  const crowd = () => bot.hear({ room_id: 'general', message_id: 'heard-other', from: { user_id: 'u_other' }, body: { text: 'hi' } });
   return { bot, ws, timers, calls: l.calls, sent: l.sent, say, flush, settle, last, typing, posts, history, roles, crowd };
 }
 test('a mention has its history read, its judge and its draft in flight together; the verdict gates only the post', async () => {
@@ -150,7 +150,7 @@ test('a reply the deadline ends before it is posted is not remembered as said, a
   await r.settle();
   assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'deadline', 0]);
   assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
-  assert.equal(r.bot.answered.get('general')?.size ?? 0, 0);
+  assert.equal(r.bot.heard.get('general').answered.size, 0);
   // The draft spent calls, so it is a turn of the bot's in the room record, though nothing was said.
   assert.equal(r.bot.turns.get('general').length, 2);
 });
@@ -183,7 +183,7 @@ test('a post the server answers with an error is a failed reply, and nothing rem
   assert.deepEqual([r.last().outcome, r.last().detail, r.posts().length], ['reply-failed', 'post-Guests can only read here', 1]);
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'posted'), []);
   assert.deepEqual(r.bot.context.filter(x => x.name === 'you'), []);
-  assert.deepEqual([r.bot.turns.get('general').length, r.bot.answered.get('general')?.size ?? 0], [2, 0]);
+  assert.deepEqual([r.bot.turns.get('general').length, r.bot.heard.get('general').answered.size], [2, 0]);
 });
 test('losing the connection aborts every call in flight and the message is stale', async () => {
   const r = rig();

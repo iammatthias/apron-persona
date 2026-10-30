@@ -38,6 +38,23 @@ export function decision(data) {
   });
   return { vector, learn: a.learn, reply: a.reply, point: a.point, topic: topic(a.topic) };
 }
+// Counts, not clocks. Behaviour and memory count messages and conversation state; a clock is used only by transport
+// (timeouts, pings, reconnects), by the owner's per-day call cap, and to show times on the portal.
+//
+// A sender is alone with the bot when nobody else is among the room's last ALONE messages: a screenful with no one
+// else in it, so a lull doesn't make a soliloquy of the next line.
+export const ALONE = 10;
+// A sender the bot answered within the room's last FOLLOWUP messages is still talking to it: long enough for a
+// couple of exchanges, short enough that the room has moved on by the time it lapses.
+export const FOLLOWUP = 6;
+// One lesson per sender per LEARN_EVERY messages of the room, so the voice talking most isn't the whole personality.
+export const LEARN_EVERY = 10;
+// The last SEEN distinct texts the bot read, across rooms: a flood repeating itself is caught, and a stock phrase comes
+// back into play after a screenful of other talk.
+export const SEEN = 64;
+// The last CONTEXT lines the bot saw itself, across rooms, for a reply when history takes too long: enough to answer
+// from, few enough that nothing lingers.
+export const CONTEXT = 12;
 // How many lessons it takes for a lesson to fade to half its weight. Forgetting is by intake, never by the calendar: a
 // quiet room keeps what it taught. 200 means a room that changes its tone retrains the bot within a few hundred
 // learned messages, while one odd evening of twenty can't swing it; the ten-lesson seed and the ten-lesson neutral
@@ -105,12 +122,13 @@ export function named(text, names) {
   const words = [...names.map(n => typeof n === 'string' ? n.trim() : '').filter(Boolean), 'bot'].map(n => n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '\\s+'));
   return new RegExp(`(^|[^\\w@])(${words.join('|')})(?![\\w])`, 'i').test(text);
 }
-// Whether a message is part of a conversation with the bot even without a tag or its name: the sender is the only person
-// talking in the room lately, or the bot answered them a moment ago. `heard` maps user_id → when they last spoke here;
-// `answered` maps user_id → when the bot last answered them here.
-export function conversing(heard, answered, user, now, { alone = 30 * 60000, followup = 10 * 60000 } = {}) {
-  const others = [...heard].some(([id, at]) => id !== user && now - at < alone);
-  return !others || now - (answered.get(user) ?? -Infinity) < followup;
+// Whether a message is part of a conversation with the bot even without a tag or its name: the sender is the only one
+// among the room's last ALONE messages, or the bot answered them within its last FOLLOWUP. `room` is the room's record
+// of what the bot heard, by position: how many messages (count), who sent the last ALONE (senders, this message's
+// sender included) and at what count the bot last answered each sender.
+export function conversing({ senders, count, answered }, user) {
+  const alone = !senders.some(id => id !== user);
+  return alone || count - (answered.get(user) ?? -Infinity) <= FOLLOWUP;
 }
 export function addressing(s, mention, reply) {
   if (mention && reply) return !s.reply_mentions && s.reply_replies ? 'reply' : 'mention';

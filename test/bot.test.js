@@ -1,6 +1,7 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import { Bot } from '../src/bot.js';
+import { ALONE, FOLLOWUP, LEARN_EVERY, CONTEXT, SEEN } from '../src/core.js';
 import { margins } from '../src/events.js';
 import { settings, guardrails, cue, chime, tensionsPrompt } from '../src/settings.js';
 import { check, disk, never } from '../src/disk.js';
@@ -15,11 +16,13 @@ const classified = { choices: [{ message: { content: JSON.stringify({ learn: .9,
 const env = { APRON_URL: 'wss://apron.test/', APRON_TOKEN: 't', OPENROUTER_API_KEY: 'k', ROOMS: 'general', DAILY_CALLS: '40', HASH_SECRET: 'test-key', BOT_NAME: 'Persona', DECISION_MODEL: 'd', CHAT_MODEL: 'c' };
 const held = tensionsPrompt(settings.tensions.default());
 const defaults = { persona: settings.persona.default(), tensions: settings.tensions.default(), revisions: [], paused: false, reply_mentions: true, reply_replies: true, reply_threshold: .7, organic: false, organic_threshold: .9, norms: {}, owner: '' };
+const spoke = (user_id, room_id = 'general') => ({ room_id, message_id: `heard-${++heardIds}`, from: { user_id }, body: { text: 'hi' } });
+let heardIds = 0;
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
   const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
-  // A second person spoke recently, so a message isn't taken as talking to the bot just for being alone with it.
-  bot.heard.set('general', new Map([['zed', Date.now()]]));
+  // A second person spoke lately, so a message isn't taken as talking to the bot just for being alone with it.
+  bot.hear(spoke('zed'));
   return { bot, ws, saved };
 }
 test('transcript stays in memory and persists only aggregate weights', async () => {
@@ -30,7 +33,10 @@ test('transcript stays in memory and persists only aggregate weights', async () 
   await bot.handle(p); await bot.handle(p); bot.save();
   assert.equal(calls, 1);
   assert.ok(saved.every(s => !s.includes('private-content-canary') && !s.includes('alice')));
-  bot.context[0].at = Date.now() - 300001; bot.prune(); assert.equal(bot.context.length, 0);
+  assert.deepEqual(bot.context, [{ room: 'general', name: 'alice', content: 'private-content-canary' }]);
+  for (let i = 0; i < 13; ++i) await bot.handle({ room_id: 'general', message_id: `c${i}`, from: { user_id: `u${i}` }, body: { text: `line ${i}` } });
+  assert.equal(bot.context.length, CONTEXT);
+  assert.deepEqual(bot.context.map(x => x.content).slice(0, 2), ['line 1', 'line 2']);
 });
 test('there is no call cap unless DAILY_CALLS sets a whole number', () => {
   const left = DAILY_CALLS => new Bot({ ...env, DAILY_CALLS }, { load: () => ({}), save() {} }, { connect: socket }).left();
@@ -284,7 +290,7 @@ test('nothing written to DATA_DIR carries anything on the never-store list', asy
     const bot = new Bot({ ...env, ...secrets }, { load: () => load('state.json'), save: s => write('state.json', s) },
       { connect: () => ws, request: model({ scores: { reply: .95, point: .95 }, text: 'model-canary' }) });
     const f = { bot, ws };
-    bot.heard.set('general', new Map([['zed', Date.now()]]));
+    bot.hear(spoke('zed'));
     bot.tick(); ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
     bot.configure({ organic: 'on' });
     assert.equal((await deliver(f, { from: { user_id: 'u_canary', name: 'Canary Name' } }, 'chime-canary'))[0].outcome, 'chimed-in');
@@ -574,9 +580,11 @@ test('alone with the bot, or just answered by it, a sender is talking to it', as
   const crowd = connected(model({ scores: { learn: .9, reply: .9, point: .1 } }));
   crowd.bot.configure({ organic: 'on' });
   assert.equal((await deliver(crowd, {}, 'lunch anyone?'))[0].outcome, 'nothing-to-add');
-  crowd.bot.answered.set('general', new Map([['carol', Date.now()]]));
-  const followup = await deliver(crowd, { from: { user_id: 'carol' } }, 'and what about dinner');
-  assert.equal(followup[0].addressed, 'mention');
+  assert.equal((await deliver(crowd, { from: { user_id: 'carol' } }, 'hey @bot_me, lunch?'))[0].outcome, 'replied');
+  // Answered, carol's next lines are follow-ups for FOLLOWUP messages of the room, and then they aren't.
+  assert.deepEqual((await deliver(crowd, { from: { user_id: 'carol' } }, 'and what about dinner')).map(e => [e.addressed, e.outcome]), [['mention', 'replied']]);
+  for (let i = 0; i < FOLLOWUP; ++i) crowd.bot.hear(spoke(`other${i}`));
+  assert.deepEqual((await deliver(crowd, { from: { user_id: 'carol' } }, 'or breakfast')).map(e => [e.addressed, e.outcome]), [[undefined, 'rate-limited']]);
 });
 // A sender's reply to the bot's latest post, as a peer bot's would be.
 const replyTo = (f, user_id, text) => deliver(f, { from: { user_id }, reply_to: { message_id: f.bot.log.list().findLast(e => e.kind === 'posted').message_id } }, text);
@@ -667,14 +675,15 @@ test('the owner is who the server says, or failing that whoever the bot_ prefix 
   bot.ws.emit({ id: 'auth', result: { you: { user_id: 'bot_guest_1', name: 'Bot of guest_1' } } });
   assert.equal(bot.owner, 'guest_1');
 });
-test('who spoke when is forgotten after the windows it serves', async () => {
+test('who spoke is kept by position: a sender drops out of the room record once ALONE others have spoken', async () => {
   const f = connected(model());
-  f.bot.heard.set('general', new Map([['old', Date.now() - 31 * 60000], ['zed', Date.now()]]));
-  await deliver(f, {}, 'hello');
-  assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
+  for (let i = 0; i < ALONE - 1; ++i) f.bot.hear(spoke('zed'));
+  // zed is the only other voice, so far; one more of zed's and carol is talking to the bot alone... except carol herself counts.
+  assert.deepEqual(await deliver(f, {}, 'hello'), seen('learned-only', { addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
+  for (let i = 0; i < ALONE; ++i) f.bot.hear(spoke('carol'));
   // Reading how a message addresses the bot records nothing: only its arrival does.
   f.bot.addressed({ room_id: 'general', message_id: 'x', from: { user_id: 'dave' }, body: { text: 'hi' } });
-  assert.deepEqual([...f.bot.heard.get('general').keys()].sort(), ['carol', 'zed']);
+  assert.deepEqual(await deliver(f, {}, 'you there?'), seen('replied', { learn_p: .9, reply_p: .9, point_p: .9, style: flat }));
 });
 test('a room the server refuses is left alone until the next sign-in, and needs you says so', async () => {
   const sockets = [], tick = () => new Promise(r => setTimeout(r, 0));
@@ -787,4 +796,24 @@ test('every persona save is a numbered revision with its reason; the last 20 are
   assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').slice(0, 2).map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['persona'], reason: 'because pirates' }, { kind: 'settings', keys: ['persona'] }]);
   assert.deepEqual(bot.log.list().filter(e => e.kind === 'settings').at(-1).reason, 'restored #7');
   assert.throws(() => bot.configure({ revisions: 'x' }), { message: 'revisions are kept, not written' });
+});
+test('a sender is sized up for learning once per LEARN_EVERY messages of the room, by position', async () => {
+  let judged = 0;
+  const f = connected(async (url, init) => { if (JSON.parse(init.body).temperature === 0) ++judged; return model({ scores: { learn: .9, reply: .1, point: .1 } })(url, init); });
+  assert.equal(LEARN_EVERY, 10);
+  assert.equal((await deliver(f, { from: { user_id: 'dave' } }, 'one'))[0].outcome, 'learned-only');
+  for (let i = 0; i < LEARN_EVERY - 2; ++i) f.bot.hear(spoke(`p${i}`));
+  assert.equal((await deliver(f, { from: { user_id: 'dave' } }, 'two'))[0].outcome, 'rate-limited');
+  assert.equal((await deliver(f, { from: { user_id: 'dave' } }, 'three'))[0].outcome, 'learned-only');
+  assert.equal(judged, 2);
+  assert.equal(margins['rate-limited'].say({ name: 'dave' }), 'already sized dave up within the last 10 messages here.');
+});
+test('a repeated text is a duplicate while it is among the last SEEN distinct ones, however long ago', async () => {
+  const f = connected(model());
+  f.bot.env.DAILY_CALLS = '';
+  assert.equal((await deliver(f, {}, 'nice weather'))[0].outcome, 'learned-only');
+  assert.equal((await deliver(f, { from: { user_id: 'dave' } }, 'NICE   weather'))[0].outcome, 'duplicate');
+  for (let i = 0; i < SEEN; ++i) await deliver(f, { from: { user_id: `v${i}` } }, `distinct ${i}`);
+  assert.equal((await deliver(f, { from: { user_id: 'erin' } }, 'nice weather'))[0].outcome, 'learned-only');
+  assert.equal(f.bot.seen.size, SEEN);
 });

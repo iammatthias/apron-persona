@@ -1,6 +1,6 @@
 import { test } from 'bun:test';
 import assert from 'node:assert/strict';
-import { named, conversing, axes, fresh, learn, seed, migrate, persona, fingerprint, incoming, decision, HALF_LIFE } from '../src/core.js';
+import { named, conversing, axes, fresh, learn, seed, migrate, persona, fingerprint, incoming, decision, HALF_LIFE, ALONE, FOLLOWUP } from '../src/core.js';
 test('a lesson fades by intake, not by the calendar: half after HALF_LIFE more lessons, untouched while nothing is learned', () => {
   const s = fresh();
   assert.deepEqual(s, { version: 2, cells: {}, n: 0 });
@@ -81,12 +81,17 @@ test('a blank or missing name never matches every message', () => {
   for (const names of [['   '], [''], [undefined, null]]) assert.equal(named('lunch anyone?', names), false);
   assert.equal(named('bot?', ['   ']), true);
 });
-test('conversing: alone in the room, or answered within ten minutes', () => {
-  const now = 1e7, heard = m => new Map(m);
-  assert.equal(conversing(heard([]), new Map(), 'ana', now), true);
-  assert.equal(conversing(heard([['ana', now - 1000]]), new Map(), 'ana', now), true);
-  assert.equal(conversing(heard([['ben', now - 60000]]), new Map(), 'ana', now), false);
-  assert.equal(conversing(heard([['ben', now - 31 * 60000]]), new Map(), 'ana', now), true);
-  assert.equal(conversing(heard([['ben', now - 60000]]), new Map([['ana', now - 9 * 60000]]), 'ana', now), true);
-  assert.equal(conversing(heard([['ben', now - 60000]]), new Map([['ana', now - 11 * 60000]]), 'ana', now), false);
+test('conversing: alone among the room\'s last ALONE messages, or answered by the bot within its last FOLLOWUP', () => {
+  assert.deepEqual([ALONE, FOLLOWUP], [10, 6]);
+  const room = (senders, count = senders.length, answered = []) => ({ count, senders: senders.slice(-ALONE), answered: new Map(answered), judged: new Map() });
+  assert.equal(conversing(room([]), 'ana'), true);
+  assert.equal(conversing(room(['ana', 'ana']), 'ana'), true);
+  assert.equal(conversing(room(['ben', 'ana']), 'ana'), false);
+  // ben spoke, then ana nine times: ben is still among the last ten. At ana's tenth he is not.
+  assert.equal(conversing(room(['ben', ...Array(9).fill('ana')]), 'ana'), false);
+  assert.equal(conversing(room(['ben', ...Array(10).fill('ana')]), 'ana'), true);
+  // Answered at message 20: ana's messages 21 to 26 are follow-ups, 27 is not.
+  assert.equal(conversing(room(['ben', 'ana'], 26, [['ana', 20]]), 'ana'), true);
+  assert.equal(conversing(room(['ben', 'ana'], 27, [['ana', 20]]), 'ana'), false);
+  assert.equal(conversing(room(['ben', 'ana'], 21, [['ben', 20]]), 'ana'), false);
 });

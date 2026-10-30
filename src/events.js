@@ -1,4 +1,4 @@
-import { axes, leanings, LOOP_TURNS, LOOP_WINDOW } from './core.js';
+import { axes, leanings, LOOP_TURNS, LOOP_WINDOW, LEARN_EVERY } from './core.js';
 // Every kind of event the bot records. Only declared fields are kept: a message's text only when it engages the bot.
 export const kinds = {
   connected: { label: 'Connected', fields: ['host', 'user_id'] },
@@ -28,7 +28,7 @@ export const outcomes = {
   paused: 'Ignored: paused',
   stale: 'Dropped: the connection changed first',
   duplicate: 'Ignored: repeats a recent message',
-  'rate-limited': 'Ignored: sender already counted in the last five minutes',
+  'rate-limited': `Ignored: sender already sized up within the room's last ${LEARN_EVERY} messages`,
   'trigger-off': 'Addressed, but that trigger is off',
   'learned-only': 'Classified; not addressed',
   declined: 'Addressed; reply probability below the bar',
@@ -70,7 +70,7 @@ export const margins = {
   paused: { place: 'room', fold: true, miss: 'paused', say: () => "I'm paused, so I didn't read it." },
   stale: { place: 'room', fold: true, miss: 'link changed', say: () => 'the connection changed before I got to it.' },
   duplicate: { place: 'room', fold: true, miss: 'a repeat', say: () => "I'd seen this exact text already." },
-  'rate-limited': { place: 'room', fold: true, say: e => `already learned from ${who(e)} in the last 5 min.` },
+  'rate-limited': { place: 'room', fold: true, say: e => `already sized ${who(e)} up within the last ${LEARN_EVERY} messages here.` },
   'trigger-off': { place: 'room', miss: 'trigger off', say: e => `you've turned off answering ${e.addressed === 'reply' ? 'replies to me' : 'mentions'}, so I let it be.` },
   'learned-only': { place: 'room', fold: true, say: e => e.style ? `learned. ${lean(e.style)}. (${p2(e.learn_p)})` : `didn't learn. learn chance ${p2(e.learn_p)}, I need 0.80.` },
   declined: { place: 'room', tone: 'warn', miss: 'below the bar', say: e => `didn't answer. reply chance ${p2(e.reply_p)}, I need ${p2(e.need)}.` },
