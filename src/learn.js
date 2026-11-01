@@ -15,7 +15,7 @@ export function read(connect, { url, token, rooms, cap, self, limit = 30000 }) {
     };
     const timer = setTimeout(() => end(Error('history-timeout')), limit);
     const send = (method, params, id = String(++seq)) => ws.send(JSON.stringify({ method, id, params }));
-    const page = () => send('history', { room_id: rooms[room], limit: 100, ...before === undefined ? {} : { before: String(before) } });
+    const page = () => send('history', { room_id: rooms[room], limit: 50, ...before === undefined ? {} : { before: String(before) } });
     const kept = () => [...latest.values()].filter(m => !incoming(m, self, new Set(), [rooms[room]]));
     const next = () => {
       if (latest) found.push(...kept());

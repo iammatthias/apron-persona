@@ -42,15 +42,17 @@ export function lab() {
 // delivers server frames. Set `history` to the messages a history read returns, and `refuse` to the room ids whose
 // join and history the server answers with an error.
 export function socket() {
-  const listeners = {}, sent = [];
+  const listeners = {}, sent = [], raw = [];
   return {
-    sent, readyState: 1, refuse: new Set(),
+    sent, raw, readyState: 1, refuse: new Set(),
     addEventListener(type, f) { (listeners[type] ??= []).push(f); },
     removeEventListener(type, f) { listeners[type] = listeners[type]?.filter(g => g !== f); },
     emit(frame) { listeners.message?.forEach(f => f({ data: JSON.stringify(frame) })); },
-    close() { this.readyState = 3; listeners.close?.forEach(f => f({ type: 'close', code: 1006, reason: '' })); },
-    send(raw) {
-      const frame = JSON.parse(raw); sent.push(frame);
+    fire(type, event) { if (type === 'close') this.readyState = 3; listeners[type]?.forEach(f => f({ type, ...event })); },
+    close() { this.fire('close', { code: 1006, reason: '' }); },
+    send(text) {
+      raw.push(text);
+      const frame = JSON.parse(text); sent.push(frame);
       if (frame.method === 'message' && !frame.params.deleted) queueMicrotask(() => this.emit({ id: frame.id, result: { message_id: `posted-${frame.id}` } }));
       if (frame.method === 'history' && frame.params.room_id) queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { code: -32602, message: 'Room does not exist' } } : { id: frame.id, result: { messages: this.history ?? [] } }));
       if (frame.method === 'room_join') queueMicrotask(() => this.emit(this.refuse.has(frame.params.room_id) ? { id: frame.id, error: { code: -32602, message: 'Room does not exist' } } : { id: frame.id, result: {} }));

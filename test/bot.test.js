@@ -20,7 +20,7 @@ const spoke = (user_id, room_id = 'general') => ({ room_id, message_id: `heard-$
 let heardIds = 0;
 function fixture(request, load = () => ({})) {
   const saved = [], ws = socket();
-  const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request });
+  const bot = new Bot(env, { load, save: s => saved.push(JSON.stringify(check('state.json', s))) }, { connect: () => ws, request, retry: 0 });
   // A second person spoke lately, so a message isn't taken as talking to the bot just for being alone with it.
   bot.hear(spoke('zed'));
   return { bot, ws, saved };
@@ -77,7 +77,7 @@ test('lists only its own live posts and deletes by message id', async () => {
   ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
   const listing = bot.posts();
   const history = ws.sent.at(-1);
-  assert.deepEqual(history.params, { room_id: 'general', limit: 200 });
+  assert.deepEqual(history.params, { room_id: 'general', limit: 50 });
   const m = (id, user_id, extra) => ({ room_id: 'general', message_id: id, log_id: id, from: { user_id }, body: { text: id }, ...extra });
   ws.emit({ id: history.id, result: { messages: [m('1', 'bot_me'), m('2', 'carol'), m('3', 'bot_me', { deleted: true, body: undefined }), m('4', 'bot_me')] } });
   assert.deepEqual((await listing).map(x => x.message_id), ['4', '1']);
@@ -230,7 +230,7 @@ test('a message event names its sender, and a pong times the ping', async () => 
   assert.deepEqual(await deliver(f, { from: { user_id: 'carol', name: 'Carol '.repeat(20) } }, 'nice weather'),
     seen('learned-only', { name: 'Carol '.repeat(20).slice(0, 64), addressed: undefined, learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: flat }));
   assert.equal(f.bot.details().latency, null);
-  f.bot.tick();
+  f.bot.beat();
   assert.equal(f.ws.sent.at(-1).method, 'ping');
   f.bot.pingedAt -= 40;
   f.ws.emit({ method: 'pong' });
@@ -331,7 +331,7 @@ const posts = ws => ws.sent.filter(f => f.method === 'message').map(f => f.param
 // While the server is unreachable, each tick's attempt dies before sign-in; only the connection that was up was lost.
 test('an attempt that dies before sign-in is not another lost connection', () => {
   const sockets = [];
-  const bot = new Bot({ ...env, APRON_URL: 'wss://apron.test/' }, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; } });
+  const bot = new Bot({ ...env, APRON_URL: 'wss://apron.test/' }, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; }, retry: 0 });
   bot.tick();
   sockets[0].emit({ method: 'server', params: {} });
   sockets[0].emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
@@ -687,7 +687,7 @@ test('who spoke is kept by position: a sender drops out of the room record once 
 });
 test('a room the server refuses is left alone until the next sign-in, and needs you says so', async () => {
   const sockets = [], tick = () => new Promise(r => setTimeout(r, 0));
-  const bot = new Bot({ ...env, ROOMS: 'general,ghost' }, { load: () => ({}), save() {} }, { connect: () => { const ws = socket(); ws.refuse = new Set(['ghost']); sockets.push(ws); return ws; }, request: model() });
+  const bot = new Bot({ ...env, ROOMS: 'general,ghost' }, { load: () => ({}), save() {} }, { connect: () => { const ws = socket(); ws.refuse = new Set(['ghost']); sockets.push(ws); return ws; }, request: model(), retry: 0 });
   bot.tick();
   const [ws] = sockets;
   ws.emit({ method: 'server', params: {} }); ws.emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
@@ -716,12 +716,12 @@ test('a room the server refuses is left alone until the next sign-in, and needs 
 });
 test('a signed-in connection the network breaks is retried in seconds, a refused or switched one is not', async () => {
   const sockets = [];
-  const bot = new Bot(env, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; }, retry: 5 });
+  const bot = new Bot(env, { load: () => ({}), save: () => {} }, { connect: () => { const ws = socket(); sockets.push(ws); return ws; }, retry: 1 });
   bot.tick();
   sockets[0].emit({ method: 'server', params: {} });
   sockets[0].emit({ id: 'auth', result: { you: { user_id: 'bot_me', name: 'Persona' } } });
   sockets[0].close();
-  await new Promise(r => setTimeout(r, 20));
+  for (let waited = 0; sockets.length < 2 && waited < 1000; waited += 5) await new Promise(r => setTimeout(r, 5));
   assert.equal(sockets.length, 2);
   bot.drop('switched');
   await new Promise(r => setTimeout(r, 20));
@@ -756,7 +756,7 @@ test('an empty owner from the server counts as no owner', () => {
   assert.equal(bot.owner, 'ana');
 });
 test('request ids never repeat across a restart, since the server remembers them per user', () => {
-  const ids = () => { const { bot, ws } = connected(model()); bot.send('ping', {}); bot.send('ping', {}); return ws.sent.filter(f => f.method === 'ping').map(f => f.id); };
+  const ids = () => { const { bot, ws } = connected(model()); bot.send('room_list', {}); bot.send('room_list', {}); return ws.sent.filter(f => f.method === 'room_list').map(f => f.id); };
   const [a, b] = [ids(), ids()];
   assert.equal(new Set([...a, ...b]).size, 4);
   assert.match(a[0], /^[0-9a-f]{8}\.\d+$/);

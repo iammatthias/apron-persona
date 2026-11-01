@@ -29,7 +29,7 @@ const befores = ws => ws.sent.filter(f => f.method === 'history').map(f => f.par
 test('the reader pages history backwards below each page and closes the socket', async () => {
   const ws = server(filler(250));
   const lines = await read(() => ws, { url: 'wss://x/', token: '', rooms: ['general'], cap: 1000 });
-  assert.deepEqual(befores(ws), [undefined, '150', '50']);
+  assert.deepEqual(befores(ws), [undefined, '200', '150', '100', '50']);
   assert.equal(lines.length, 250);
   assert.deepEqual(lines[0], { name: 'u1', text: 'line 1' });
   assert.deepEqual(lines.at(-1), { name: 'u1', text: 'line 250' });
@@ -47,14 +47,14 @@ test('the reader keeps the newest snapshot and skips tombstones, bots, notices, 
   const ws = server(log);
   const lines = await read(() => ws, { url: 'wss://x/', token: 'tok', rooms: ['general'], cap: 1000, self: 'bot_me' });
   assert.deepEqual(ws.sent[0].params, { scheme: 'token', token: 'tok' });
-  assert.deepEqual(befores(ws), [undefined, '31']);
+  assert.deepEqual(befores(ws), [undefined, '81', '31']);
   assert.equal(lines.length, 121);
   assert.deepEqual(lines.filter(l => !l.text.startsWith('line ')), [{ name: 'ana', text: 'edited' }]);
 });
 test('the reader stops paging at the cap and keeps the newest', async () => {
   const ws = server(filler(250));
   const lines = await read(() => ws, { url: 'wss://x/', token: '', rooms: ['general'], cap: 120 });
-  assert.deepEqual(befores(ws), [undefined, '150']);
+  assert.deepEqual(befores(ws), [undefined, '200', '150']);
   assert.equal(lines.length, 120);
   assert.deepEqual([lines[0].text, lines.at(-1).text], ['line 131', 'line 250']);
 });

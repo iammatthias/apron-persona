@@ -35,7 +35,9 @@ function rig({ capabilities = ['activity'], calls = '40' } = {}) {
   const roles = () => l.calls.map(c => c.body.temperature === 0 ? 'judge' : 'compose');
   // Someone else spoke here lately, so a lone sender is not taken as talking to the bot.
   const crowd = () => bot.hear({ room_id: 'general', message_id: 'heard-other', from: { user_id: 'u_other' }, body: { text: 'hi' } });
-  return { bot, ws, timers, calls: l.calls, sent: l.sent, say, flush, settle, last, typing, posts, history, roles, crowd };
+  // The heartbeat is the one timer a signed-in bot always has pending.
+  const idle = () => timers.pending() === 1;
+  return { bot, ws, timers, idle, calls: l.calls, sent: l.sent, say, flush, settle, last, typing, posts, history, roles, crowd };
 }
 test('a mention has its history read, its judge and its draft in flight together; the verdict gates only the post', async () => {
   const r = rig();
@@ -55,7 +57,7 @@ test('a mention has its history read, its judge and its draft in flight together
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'post', 'total']);
   assert.ok(Object.values(ms).every(v => Number.isInteger(v) && v >= 0));
   assert.deepEqual(r.typing(), [8, 0]);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
 });
 test('a decline aborts the draft, posts nothing and clears the typing notice', async () => {
   const r = rig();
@@ -68,7 +70,7 @@ test('a decline aborts the draft, posts nothing and clears the typing notice', a
   const { ms, ...e } = r.last();
   assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'declined', learn_p: .9, reply_p: .2, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], need: .7, via: { judge: 'd' } });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'total']);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
 });
 test('a judge that times out on both models still lets the reply go, unsized, with the hedge on record', async () => {
   const r = rig();
@@ -130,7 +132,7 @@ test('the deadline ends a message that is still drafting: reply-failed, deadline
   await r.say('hey @bot_me');
   r.calls[0].answer(judged());
   await r.timers.tick(24999);
-  assert.deepEqual(r.typing(), [8, 8, 8, 8, 8]);
+  assert.deepEqual(r.typing(), [8, 8, 8, 8]);
   assert.equal(r.calls[1].aborted, null);
   await r.timers.tick(1);
   await r.settle();
@@ -138,8 +140,8 @@ test('the deadline ends a message that is still drafting: reply-failed, deadline
   const { ms, ...e } = r.last();
   assert.deepEqual(e, { room: 'general', message_id: 'm1', from: 'u1', addressed: 'mention', text: 'hey @bot_me', outcome: 'reply-failed', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH', style: [.5, .5, .5, .5], detail: 'deadline', via: { judge: 'd' } });
   assert.deepEqual(Object.keys(ms), ['context', 'judge', 'compose', 'total']);
-  assert.deepEqual(r.typing(), [8, 8, 8, 8, 8, 0]);
-  assert.equal(r.timers.pending(), 0);
+  assert.deepEqual(r.typing(), [8, 8, 8, 8, 0]);
+  assert.equal(r.idle(), true);
 });
 test('a reply the deadline ends before it is posted is not remembered as said, answered or spoken', async () => {
   const r = rig();
@@ -193,6 +195,7 @@ test('losing the connection aborts every call in flight and the message is stale
   assert.deepEqual(r.calls.map(c => c.aborted), ['stale', 'stale']);
   assert.equal(r.last().outcome, 'stale');
   assert.deepEqual(r.typing(), [8]);
+  // The heartbeat went with the connection.
   assert.equal(r.timers.pending(), 0);
   assert.equal(r.bot.newest.size, 0);
 });
@@ -260,7 +263,7 @@ test('a burst from one sender is answered once, to the latest message, with the 
   ]);
   assert.equal(r.calls[5].body.messages[1].content.split('\n\n')[0], 'carol: hey @bot_me\ncarol: wait @bot_me\ncarol: actually @bot_me');
   assert.deepEqual(r.typing(), [8, 0, 8, 0, 8, 0]);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
 });
 test('a burst whose later messages arrive before the first is drafted costs no calls for the superseded ones', async () => {
   const r = rig();
@@ -288,7 +291,7 @@ test('a burst that talks over every draft spends twelve calls, then rests; the o
   await r.settle();
   assert.deepEqual(r.posts(), []);
   assert.deepEqual(r.bot.log.list().filter(e => e.kind === 'message').map(e => e.outcome), [...Array(7).fill('superseded'), 'looping', 'looping', 'looping']);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
   const o = rig();
   const owner = { from: { user_id: 'me' } };
   for (let i = 1; i <= 10; ++i) await o.say(`part ${i} @bot_me`, owner);
@@ -320,7 +323,7 @@ test('an untagged follow-up sent while the bot drafts is answered after the firs
     { room: 'general', message_id: 'm2', from: 'carol', addressed: 'mention', text: 'in the east side ideally', outcome: 'replied', learn_p: .9, reply_p: .9, point_p: .9, confidence: 'HIGH' },
   ]);
   assert.equal(r.bot.newest.get('general')?.size ?? 0, 0);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
 });
 test('an untagged follow-up is still superseded by a tagged one that arrives before it is handled', async () => {
   const r = rig();
@@ -441,9 +444,9 @@ test('a prompt that cannot be built leaves no typing notice behind, on or re-arm
   assert.deepEqual(r.typing(), []);
   await r.timers.tick(60000);
   assert.deepEqual(r.typing(), []);
-  assert.equal(r.timers.pending(), 0);
+  assert.equal(r.idle(), true);
 });
-test('the typing notice is renewed every 6 s while drafting, and never sent to a server without activity', async () => {
+test('the typing notice is renewed every 7 s while drafting, and never sent to a server without activity', async () => {
   const r = rig();
   await r.say('hey @bot_me');
   r.calls[0].answer(judged());
@@ -455,7 +458,7 @@ test('the typing notice is renewed every 6 s while drafting, and never sent to a
   slow.bot.models = { ...slow.bot.models, compose: { ...slow.bot.models.compose, timeout: 20000, hedge: null } };
   await slow.say('hey @bot_me');
   slow.calls[0].answer(judged());
-  await slow.timers.tick(13000);
+  await slow.timers.tick(14000);
   slow.calls[1].answer(content('yo'));
   await slow.settle();
   assert.deepEqual(slow.typing(), [8, 8, 8, 0]);

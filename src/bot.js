@@ -6,7 +6,18 @@ import { empty, tally, digest, onepager } from './memory.js';
 import { schemas, fits } from './disk.js';
 import * as models from './models.js';
 // A message is answered within DEADLINE or not at all; a typing notice is renewed every TYPING ms while a reply is drafted.
-const DEADLINE = 25000, TYPING = 6000;
+const DEADLINE = 25000, TYPING = 7000;
+// The demo's rules for a well-behaved client (apron-server-cloudflare docs/limits.md): reconnects wait RETRY ms doubling
+// to at most MAX_RETRY, ±50%, and a 1013 close ("try later") at least LATER; a close that names the credentials is not
+// retried with them. A message holds TEXT_BYTES of UTF-8 and a history page PAGE records.
+const MAX_RETRY = 60000, LATER = 300000, TEXT_BYTES = 4096, PAGE = 50;
+const SIGNED_OUT = /token replaced|removed by an admin|signed out/i;
+const pause = (timers, ms, signal) => new Promise((resolve, reject) => {
+  if (signal?.aborted) return reject(signal.reason);
+  const done = () => { signal?.removeEventListener('abort', stop); resolve(); };
+  const timer = timers.setTimeout(done, ms), stop = () => { timers.clearTimeout(timer); reject(signal.reason); };
+  signal?.addEventListener('abort', stop, { once: true });
+});
 // Failures that are outcomes in their own right, with no detail to add.
 const plain = new Set(['budget', 'stale', 'reply-empty', 'superseded']);
 // One live Apron connection: learns community style, replies when addressed, and may chime in when the owner allows.
@@ -18,7 +29,7 @@ export function dailyCap(value) {
   return Number.isInteger(n) && n >= 0 ? n : null;
 }
 export class Bot {
-  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 2000, timers = models.real } = {}) {
+  constructor(env, store, { connect = url => new WebSocket(url), request = fetch, log = new Log(), retry = 1000, timers = models.real } = {}) {
     this.env = env; this.store = store; this.connectTo = connect; this.request = request; this.log = log; this.retry = retry; this.timers = timers;
     this.models = models.table(env);
     this.rooms = env.ROOMS.split(',').map(s => s.trim()).filter(Boolean);
@@ -47,7 +58,9 @@ export class Bot {
     this.unavailable = new Map();
     // Servers deduplicate requests by (user_id, id) across reconnects and restarts (§1.2), so ids carry a prefix
     // fresh to this process: a restarted bot must never reuse an id the server still remembers.
-    this.seq = 0; this.boot = crypto.randomUUID().slice(0, 8); this.waiting = new Map(); this.ready = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
+    this.seq = 0; this.boot = crypto.randomUUID().slice(0, 8); this.waiting = new Map(); this.ready = false; this.reads = { n: 0, tail: Promise.resolve() };
+    // attempts is how many connections in a row failed or didn't stay up; halted is why reconnecting stopped.
+    this.attempts = 0; this.nextAt = 0; this.halted = null; this.probed = false; this.pending = 0; this.queue = Promise.resolve(); this.learning = null;
   }
   // A refused write is recorded and the bot carries on; the next save tries again.
   save() {
@@ -62,43 +75,109 @@ export class Bot {
     this.error = code; this.lastError = { code, at: Date.now() };
     this.record('error', { code });
   }
-  // Only a connection that was signed in is lost; an attempt that ends sooner is tried again next tick.
-  drop(reason) {
+  // Ends the connection and, unless it was switched or its credentials were refused, schedules the next one after
+  // the backoff, or `wait` ms when the server named a longer one.
+  drop(reason, { code, wait = 0 } = {}) {
     const ws = this.ws, up = this.ready;
     // What was queued on this connection is dropped as stale, so nothing it was the newest of remains.
     this.ws = null; this.ready = false; this.context = []; this.newest.clear();
+    this.timers.clearTimeout(this.beating);
     if (up) this.record('disconnected', { reason });
     ws.close();
-    // A signed-in socket that the network broke comes back in seconds, not at the next minute tick.
-    if (up && /^close-|^error$/.test(reason)) setTimeout(() => this.ws || this.connect(), this.retry).unref?.();
+    if (code === 1008 && SIGNED_OUT.test(reason)) { this.halted = reason; this.fail('apron-signed-out'); }
+    if (reason === 'switched' || this.halted) return;
+    const backoff = Math.min(MAX_RETRY, this.retry * 2 ** this.attempts++) * (.5 + Math.random());
+    const delay = Math.max(backoff, wait, code === 1013 ? LATER : 0);
+    this.nextAt = Date.now() + delay;
+    this.wake();
   }
-  // Runs every minute: reconnects, pings, and checkpoints.
+  // A timer may fire a little before nextAt, and a probe may push nextAt later, so it waits again for what is left.
+  wake() {
+    clearTimeout(this.waking);
+    this.waking = setTimeout(() => Date.now() < this.nextAt ? this.wake() : this.reconnect(), Math.max(0, this.nextAt - Date.now()));
+    this.waking.unref?.();
+  }
+  reconnect() { if (!this.ws && !this.halted && this.env.APRON_TOKEN && Date.now() >= this.nextAt) this.connect(); }
+  // Runs every minute: checkpoints, and reconnects once any backoff is over.
   tick() {
     if (this.dirty) this.save();
     if (this.ws && !this.ready && Date.now() - this.connectedAt > 30000) this.drop('auth-timeout');
     if (!this.ws && !this.env.APRON_TOKEN) this.fail('no-apron-token');
-    else if (!this.ws) this.connect();
-    else if (this.ready && Date.now() - this.lastFrame > 120000) this.drop('silent');
-    else if (this.ready) this.ping();
+    else this.reconnect();
+  }
+  // Every server.ping seconds from the moment the socket opens. A frame of any kind shows the socket is alive; two
+  // beats without one, and it is taken for dead. Two beats signed in reset the backoff.
+  beat() {
+    if (this.silent++ >= 2) return this.drop('silent');
+    if (this.ready && ++this.steady === 2) this.attempts = 0;
+    this.ping();
+    this.arm(this.ws);
+  }
+  arm(ws) {
+    this.timers.clearTimeout(this.beating);
+    this.beating = this.timers.setTimeout(() => this.ws === ws && this.beat(), (Number(this.server?.ping) || 45) * 1000);
+    this.beating?.unref?.();
   }
   // The server answers a ping with a pong frame, never a response, so the round trip is timed by hand.
-  ping() { this.pingedAt = Date.now(); this.send('ping', {}); }
+  ping() { this.pingedAt = Date.now(); this.notify('ping'); }
   send(method, params, id = `${this.boot}.${++this.seq}`) {
     if (this.ws?.readyState === 1) this.ws.send(JSON.stringify({ method, id, params }));
   }
-  // A request whose response resolves the returned promise, within 10 s or the signal.
-  call(method, params, signal) {
+  // ping and activity are notifications: no id, never answered. The exact ping text is answered without counting
+  // against the connection's frames.
+  notify(method, params) {
+    if (this.ws?.readyState === 1) this.ws.send(method === 'ping' ? '{"method":"ping"}' : JSON.stringify({ method, params }));
+  }
+  // A request whose response resolves the returned promise, within 10 s an attempt or the signal. A retry_after
+  // answer is sent again when it says, under the same id, so the server counts a post once.
+  async call(method, params, signal) {
+    const id = `${this.boot}.${++this.seq}`;
+    for (let tries = 3; ; --tries) {
+      try { return await this.attempt(method, params, signal, id); }
+      catch (e) {
+        if (e.code !== -32002 || !(e.wait >= 0 && e.wait <= 30) || !tries) throw e;
+        await pause(this.timers, e.wait * 1000, signal);
+      }
+    }
+  }
+  attempt(method, params, signal, id) {
     if (!this.ready || this.ws?.readyState !== 1) return Promise.reject(Error('not-connected'));
     if (signal?.aborted) return Promise.reject(signal.reason);
-    const id = `${this.boot}.${++this.seq}`;
     return new Promise((resolve, reject) => {
       const end = (error, value) => { this.timers.clearTimeout(timer); signal?.removeEventListener('abort', abort); this.waiting.delete(id); error ? reject(error) : resolve(value); };
       const abort = () => end(signal.reason);
       const timer = this.timers.setTimeout(() => end(Error('timeout')), 10000);
       signal?.addEventListener('abort', abort);
-      this.waiting.set(id, frame => end(frame.error ? Object.assign(Error(frame.error.message || 'apron-request-failed'), { refused: true, code: frame.error.code }) : null, frame.result));
+      const refusal = e => Object.assign(Error(e.message || 'apron-request-failed'), { refused: true, code: e.code, wait: Number(e.data?.retry_after) });
+      this.waiting.set(id, frame => end(frame.error ? refusal(frame.error) : null, frame.result));
       this.send(method, params, id);
     });
+  }
+  // The server reads one history request at a time per connection, so reads queue behind each other.
+  history(params, signal) {
+    const reads = this.reads, ask = () => this.call('history', { ...params, limit: Math.min(params.limit ?? PAGE, PAGE) }, signal);
+    const read = reads.n++ ? reads.tail.then(ask) : ask();
+    reads.tail = read.catch(() => {}).finally(() => --reads.n);
+    return read;
+  }
+  // A WebSocket hides why its handshake was refused; the status probe answers with the same status and Retry-After.
+  // Asked once per run of failures, since it counts as an attempt.
+  async probe() {
+    const url = new URL(this.env.APRON_URL);
+    url.protocol = url.protocol === 'ws:' ? 'http:' : 'https:'; url.search = 'apron_connection_status=1';
+    try {
+      const res = await this.request(url.href);
+      if (res.ok || res.headers.get('Apron-Connection-Status') !== '1') return;
+      const wait = Number(res.headers.get('Retry-After'));
+      if (wait > 0) this.nextAt = Math.max(this.nextAt, Date.now() + wait * 1000);
+      this.fail(`handshake-${res.status}`);
+    } catch {}
+  }
+  // Message text is bounded in UTF-8 bytes, not string length; it is cut at a whole code point.
+  fit(text) {
+    let out = '', n = 0;
+    for (const c of text) { if ((n += Buffer.byteLength(c)) > TEXT_BYTES) break; out += c; }
+    return out;
   }
   // Remembers a room the server answered with an error, as opposed to a request that timed out or found no connection.
   // Only invalid_params (the answer for an unknown or invisible room) marks it; a passing server error doesn't.
@@ -109,7 +188,7 @@ export class Bot {
   // refuses is left out from then on; any other failure fails the read.
   async posts() {
     const open = this.rooms.filter(room_id => !this.unavailable.has(room_id));
-    const pages = await Promise.all(open.map(room_id => this.call('history', { room_id, limit: 200 }).catch(e => { this.refuse(room_id, e); if (!e.refused) throw e; return null; })));
+    const pages = await Promise.all(open.map(room_id => this.history({ room_id }).catch(e => { this.refuse(room_id, e); if (!e.refused) throw e; return null; })));
     // History holds every snapshot of a message; only the newest one counts.
     const latest = new Map();
     for (const m of pages.flatMap(p => p?.messages ?? [])) {
@@ -222,13 +301,18 @@ export class Bot {
   }
   connect() {
     const ws = this.connectTo(this.env.APRON_URL);
-    this.ws = ws; this.connectedAt = this.lastFrame = Date.now(); this.ready = false;
+    this.ws = ws; this.connectedAt = Date.now(); this.ready = false; this.silent = 0; this.reads = { n: 0, tail: Promise.resolve() };
+    this.arm(ws);
     let greeted = false;
-    const closed = e => { if (this.ws === ws) this.drop(e.reason || (e.code ? `close-${e.code}` : e.type ?? 'closed')); };
+    const closed = e => {
+      if (this.ws !== ws) return;
+      this.drop(e.reason || (e.code ? `close-${e.code}` : e.type ?? 'closed'), { code: e.code });
+      if (!greeted && !this.probed) { this.probed = true; this.probe(); }
+    };
     ws.addEventListener('close', closed); ws.addEventListener('error', closed);
     ws.addEventListener('message', event => {
       if (this.ws !== ws || typeof event.data !== 'string' || event.data.length > 1048576) return;
-      this.lastFrame = Date.now();
+      this.silent = 0;
       let frame; try { frame = JSON.parse(event.data); } catch { return; }
       const waiter = frame.id != null && this.waiting.get(frame.id);
       if (frame.result?.message_id) {
@@ -239,8 +323,15 @@ export class Bot {
       if (frame.method === 'pong' && this.pingedAt) { this.latency = Date.now() - this.pingedAt; this.pingedAt = 0; }
       // Each `server` frame replaces the last; only the first is the greeting that sign-in answers.
       if (frame.method === 'server') this.server = frame.params ?? {};
-      if (frame.method === 'server' && !greeted) { greeted = true; this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth'); }
-      if (frame.id === 'auth' && frame.error) { this.record('auth-denied'); this.fail('apron-auth-denied'); this.drop('auth-denied'); }
+      // The greeting names the interval the beat keeps from then on.
+      if (frame.method === 'server' && !greeted) { greeted = true; this.arm(ws); this.send('auth', { scheme: 'token', token: this.env.APRON_TOKEN }, 'auth'); }
+      // A limit on signing in passes; any other refusal is the token's, and it is not tried again until it changes.
+      if (frame.id === 'auth' && frame.error) {
+        const wait = frame.error.code === -32002 ? Number(frame.error.data?.retry_after) * 1000 || 60000 : null;
+        if (wait === null) { this.record('auth-denied'); this.halted = 'auth-denied'; this.fail('apron-auth-denied'); }
+        else this.fail('apron-auth-limited');
+        this.drop('auth-denied', { wait: wait ?? 0 });
+      }
       if (frame.id === 'auth' && frame.result?.you) this.authed(frame.result.you);
       if (frame.method === 'user') {
         if (frame.params?.you) this.you = frame.params.you;
@@ -279,10 +370,11 @@ export class Bot {
     this.env.APRON_URL = url; this.env.APRON_TOKEN = token;
     if (this.ws) this.drop('switched');
     this.bots.clear(); this.own.clear(); this.turns.clear(); this.self = this.you = this.server = this.latency = undefined; this.error = null;
+    this.halted = null; this.attempts = 0; this.nextAt = 0; this.probed = false;
     this.connect();
   }
   authed(you) {
-    this.self = you.user_id; this.you = you; this.ready = true; this.error = null; this.since = Date.now();
+    this.self = you.user_id; this.you = you; this.ready = true; this.error = null; this.since = Date.now(); this.steady = 0; this.probed = false;
     this.record('connected', { host: new URL(this.env.APRON_URL).host, user_id: this.self });
     this.unavailable.clear();
     for (const room_id of this.rooms) this.call('room_join', { room_id }).catch(e => this.refuse(room_id, e));
@@ -444,7 +536,7 @@ export class Bot {
     if (!this.ready || connection !== this.ws) return { outcome: 'stale', respond, ...scores };
     // Nothing below is remembered unless the post goes out, and call() refuses an aborted run before sending.
     if (signal.aborted) return failed('reply-failed', signal.reason, { respond, ...scores });
-    const content = reply.slice(0, 1800);
+    const content = this.fit(reply.slice(0, 1800));
     post();
     // A chime-in is a plain message, not a reply to the one that prompted it.
     const sent = timed('post', () => this.call('message', { room_id: p.room_id, body: { text: content }, ...organic ? {} : { reply_to: { message_id: p.message_id } } }, signal));
@@ -472,19 +564,19 @@ export class Bot {
   typing(room_id, connection) {
     if (!Array.isArray(this.server?.capabilities) || !this.server.capabilities.includes('activity')) return () => {};
     let timer, over = false;
-    const on = () => { if (this.ws === connection) this.send('activity', { room_id, typing: 8 }); timer = this.timers.setTimeout(on, TYPING); };
+    const on = () => { if (this.ws === connection) this.notify('activity', { room_id, typing: 8 }); timer = this.timers.setTimeout(on, TYPING); };
     on();
     return () => {
       if (over) return;
       over = true; this.timers.clearTimeout(timer);
-      if (this.ws === connection) this.send('activity', { room_id, typing: 0 });
+      if (this.ws === connection) this.notify('activity', { room_id, typing: 0 });
     };
   }
   // The room's last messages up to and including p, read from Apron just for this reply and never kept:
   // what the bot saw live since its last restart is too little to answer from.
   async recent(p, signal, size = recall.lines) {
     if (this.unavailable.has(p.room_id)) return null;
-    const page = await this.call('history', { room_id: p.room_id, limit: 40 }, signal).catch(e => { this.refuse(p.room_id, e); throw e; });
+    const page = await this.history({ room_id: p.room_id, limit: 40 }, signal).catch(e => { this.refuse(p.room_id, e); throw e; });
     const latest = new Map();
     for (const m of page?.messages ?? []) {
       const seen = latest.get(m.message_id);
