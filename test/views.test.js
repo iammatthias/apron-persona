@@ -79,7 +79,14 @@ test('needs you groups each room\'s unanswered mentions with their reasons, then
   const down = needs({ ...s, events: [], learning: { stage: 'failed', host: 'h', rooms: ['a', 'b'], detail: 'history-closed' }, status: { ...s.status, connected: false, error: 'apron-auth-denied', budget: { day: '2026-10-28', calls: 3 } } });
   assert.deepEqual(down, [
     { group: 'persona', tone: 'bad', href: '/?view=bot#persona', text: "I couldn't redraft from history in #a and #b on h", why: 'history-closed' },
-    { group: 'link', tone: 'bad', href: '/?view=plumbing', text: "I'm not connected (apron-auth-denied)", why: '' },
+    { group: 'link', tone: 'bad', href: '/?view=plumbing', text: "I'm not connected (apron-auth-denied)", why: "the server refused my token, so I've stopped trying it. set a new one under plumbing, or restart me." },
+  ]);
+  const why = error => needs({ ...s, events: [], status: { ...s.status, connected: false, error, budget: { day: '', calls: 0 } } })[0].why;
+  assert.deepEqual(['apron-signed-out', 'apron-auth-limited', 'handshake-429', 'close-1006'].map(why), [
+    "the server signed me out (token replaced, account removed, or a week without signing in), so I've stopped reconnecting. set a new token under plumbing, or restart me.",
+    "the server is limiting sign-ins for this account. I'll try again when it says.",
+    "the server turned the connection away (HTTP 429). I'm waiting as long as it asked.",
+    '',
   ]);
   assert.deepEqual(needs({ ...s, events: [], status: { ...s.status, paused: true, connected: false, error: 'apron-auth-denied', budget: { day: '', calls: 0 } } }).map(n => n.text), ["I'm not connected (apron-auth-denied)"]);
   assert.deepEqual(needs({ ...s, events: [], limit: '0', status: { ...s.status, budget: { day: '', calls: 0 } } }), [{ group: 'budget', tone: 'warn', href: '/?view=plumbing', text: 'DAILY_CALLS is 0, so I make no calls today', why: '' }]);

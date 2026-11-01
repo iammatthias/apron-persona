@@ -51,6 +51,13 @@ export function tabs(s, place) {
     { view: 'plumbing', label: 'plumbing', end: true },
   ].map(t => ({ ...t, href: href(t), current: t.view === place.view && (t.view !== 'room' || t.room === place.room) }));
 }
+// Why the link is down, for the errors that stop or slow reconnecting; any other is shown by its code alone.
+const stuck = {
+  'apron-auth-denied': "the server refused my token, so I've stopped trying it. set a new one under plumbing, or restart me.",
+  'apron-signed-out': "the server signed me out (token replaced, account removed, or a week without signing in), so I've stopped reconnecting. set a new token under plumbing, or restart me.",
+  'apron-auth-limited': "the server is limiting sign-ins for this account. I'll try again when it says.",
+};
+const stalled = error => stuck[error] ?? (/^handshake-\d+$/.test(error) ? `the server turned the connection away (HTTP ${error.slice(10)}). I'm waiting as long as it asked.` : null);
 const where = l => `${list(l.rooms.map(r => `#${r}`))} on ${l.host}`;
 const writes = { 'state-refused': 'state.json', 'status-refused': 'status.json' };
 // What needs the owner, grouped and in this order: each room's unanswered mentions as one item, a room the bot is
@@ -70,7 +77,7 @@ export function needs(s) {
   if (learning?.stage === 'ready') out.push({ group: 'persona', tone: 'ok', href: '/?view=bot#persona', text: `a redraft from ${plural(learning.count, 'message')} in ${where(learning)} is ready to review`,
     why: learning.failed ? `${learning.failed} of my readings failed (${learning.detail}), so it leans on the rest.` : 'apply or discard it under who I am.' });
   if (learning?.stage === 'failed') out.push({ group: 'persona', tone: 'bad', href: '/?view=bot#persona', text: `I couldn't redraft from history in ${where(learning)}`, why: learning.detail });
-  if (l.state === 'down') out.push({ group: 'link', tone: 'bad', href: '/?view=plumbing', text: `I'm not connected (${l.error})`, why: l.drops ? `${plural(l.drops, 'drop')} in the last hour.` : '' });
+  if (l.state === 'down') out.push({ group: 'link', tone: 'bad', href: '/?view=plumbing', text: `I'm not connected (${l.error})`, why: stalled(l.error) ?? (l.drops ? `${plural(l.drops, 'drop')} in the last hour.` : '') });
   else if (l.drops >= FLAKY) out.push({ group: 'link', tone: 'warn', href: '/?view=plumbing', text: `the link dropped ${l.drops} times in the last hour (${l.reason})`, why: l.up === null ? '' : `up again for ${l.up < 60000 ? 'under a minute' : `${Math.round(l.up / 60000)} min`}.` });
   for (const [code, file] of Object.entries(writes)) {
     const refused = s.events.filter(e => e.kind === 'error' && e.code === code);
