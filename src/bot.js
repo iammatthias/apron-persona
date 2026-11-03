@@ -43,7 +43,9 @@ export class Bot {
     // A state.json from before the counter has none, so the day's earlier calls stay unsorted.
     this.spent = ok('spent', saved.spent) ? saved.spent : {};
     this.settings = restore(saved);
-    this.memory = ok('memory', saved.memory) ? saved.memory : empty();
+    // A state.json from before the digests were computed on use still holds them as pages; the rooms stand without them.
+    const { pages, ...memory } = saved.memory ?? {};
+    this.memory = ok('memory', memory) ? memory : empty();
     // In memory only, bounded by count: the last CONTEXT lines seen, the last SEEN distinct texts read, and per room what
     // was heard by position (hear()).
     this.context = []; this.seen = new Set(); this.heard = new Map();
@@ -593,14 +595,9 @@ export class Bot {
       content: m.body.text.slice(0, 1000),
     }));
   }
-  // A room's notes for the prompt. Its digest is rebuilt on the first use after a block closes there and kept until
-  // the next closes, in memory and state.json, so the prompt stays byte-stable between turns; the norms are the
-  // owner's current words.
-  notes(room) {
-    const r = this.memory.rooms[room], pages = this.memory.pages;
-    if (pages[room]?.closed !== (r?.closed ?? 0)) { pages[room] = digest(r); this.dirty = true; }
-    return onepager(room, pages[room], this.settings.norms[room]);
-  }
+  // A room's notes for the prompt. The digest reads only closed blocks, so the prompt stays byte-stable until the
+  // next block closes; the norms are the owner's current words.
+  notes(room) { return onepager(room, digest(this.memory.rooms[room]), this.settings.norms[room]); }
   // What the server's greeting and the auth result said, for the private page.
   details() {
     return { url: this.env.APRON_URL, since: this.ready ? this.since : null, latency: this.ready ? this.latency ?? null : null, server: this.server ?? null, you: this.you ?? null };

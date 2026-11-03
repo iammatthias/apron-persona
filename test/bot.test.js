@@ -151,10 +151,10 @@ test('a legacy state.json with top-level name and paused migrates into settings,
   assert.deepEqual(bot.settings, { ...defaults, paused: true });
   assert.deepEqual(bot.traits(), { warmth: .6, playfulness: .4, curiosity: .5, expressiveness: .55 });
   bot.save();
-  assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
-  assert.deepEqual(JSON.parse(saved[0]), { personality: { version: 2, cells: { '4023': 2.5 }, n: 0 }, budget: { day: '', calls: 0 }, spent: {}, settings: { ...defaults, paused: true }, memory: { rooms: {}, pages: {} } });
+  assert.deepEqual(bot.memory, { rooms: {} });
+  assert.deepEqual(JSON.parse(saved[0]), { personality: { version: 2, cells: { '4023': 2.5 }, n: 0 }, budget: { day: '', calls: 0 }, spent: {}, settings: { ...defaults, paused: true }, memory: { rooms: {} } });
   const broken = fixture(undefined, () => ({ personality, memory: { rooms: { general: { days: { yesterday: 'carol said hi' }, weeks: {} } } } }));
-  assert.deepEqual(broken.bot.memory, { rooms: {}, pages: {} });
+  assert.deepEqual(broken.bot.memory, { rooms: {} });
 });
 test('a saved persona persists, and a reply sees the room as one named transcript and posts a clean line', async () => {
   const bodies = [];
@@ -454,12 +454,12 @@ test('the room memory counts only messages it classified, by block and topic, wi
     outcomes.push((await deliver(f, params, text))[0].outcome);
   assert.deepEqual(outcomes, ['chimed-in', 'duplicate', 'rate-limited', 'replied', 'other-room', 'from-bot']);
   assert.equal(calls, 2);
-  assert.deepEqual(f.bot.memory, { rooms: { general: { open: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0], confidence: { HIGH: 2, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 } }, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
+  assert.deepEqual(f.bot.memory, { rooms: { general: { open: { topics: { deploys: { messages: 2, engaged: 1, replies: 1, chimes: 1 } }, learned: 2, lean: [1, 0, 0, 0], confidence: { HIGH: 2, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 } } });
   const failed = connected(model({ status: 500 }));
   assert.equal((await deliver(failed))[0].outcome, 'replied');
   assert.deepEqual(failed.bot.memory.rooms, {});
 });
-test('room notes are rebuilt when a block closes, byte-stable while one fills, and follow the norms at once', async () => {
+test('room notes move only when a block closes, byte-stable while one fills, and follow the norms at once', async () => {
   const f = connected(model());
   const count = (topic, n) => { for (let i = 0; i < n; ++i) tally(f.bot.memory, 'general', { topic, engaged: false, outcome: 'learned-only' }); };
   count('code', BLOCK);
@@ -471,10 +471,18 @@ test('room notes are rebuilt when a block closes, byte-stable while one fills, a
   assert.equal(f.bot.notes('general'), 'In #general lately: mostly code. Norms: no spoilers');
   count('music', 1);
   assert.equal(f.bot.notes('general'), 'In #general lately: mostly code and music. Norms: no spoilers');
-  assert.deepEqual(f.bot.memory.pages.general, { closed: 2, mostly: ['code', 'music'], some: [], shifts: [] });
+  assert.deepEqual(Object.keys(f.bot.memory), ['rooms']);
   assert.deepEqual(f.bot.log.list().filter(e => e.kind === 'settings').map(({ at, ...e }) => e), [{ kind: 'settings', keys: ['norms'] }]);
   f.bot.configure({ norms: { general: 'no spoilers' } });
   assert.equal(f.bot.log.list().filter(e => e.kind === 'settings').length, 1);
+});
+test('a state.json that still holds the room digests keeps its room memory and drops them', () => {
+  const block = { topics: { code: { messages: 3, engaged: 0, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0], confidence: { HIGH: 0, MEDIUM: 0, LOW: 0, UNCERTAIN: 0 } };
+  const rooms = { general: { open: block, blocks: [], folds: [], closed: 0 } };
+  const { bot, saved } = fixture(undefined, () => ({ memory: { rooms: structuredClone(rooms), pages: { general: { closed: 0, mostly: ['code'], some: [], shifts: [] } } } }));
+  assert.deepEqual(bot.memory, { rooms });
+  bot.save();
+  assert.deepEqual(JSON.parse(saved[0]).memory, { rooms });
 });
 test('a reply carries its room notes in the system prompt, before the tensions and the guardrails', async () => {
   let system;
@@ -541,13 +549,13 @@ test('a state.json section that would not pass the write check loads as its defa
   }));
   assert.deepEqual(bot.state.cells, {});
   assert.deepEqual(bot.budget, { day: '', calls: 0 });
-  assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
+  assert.deepEqual(bot.memory, { rooms: {} });
   bot.save();
-  assert.deepEqual(JSON.parse(saved[0]).memory, { rooms: {}, pages: {} });
+  assert.deepEqual(JSON.parse(saved[0]).memory, { rooms: {} });
 });
 test('a state.json from before calls were sorted by role loads with the day\'s calls intact and saves the counter', () => {
   const day = new Date().toISOString().slice(0, 10);
-  const { bot, saved } = fixture(undefined, () => ({ personality: { version: 1, at: 0, cells: {} }, budget: { day, calls: 30 }, settings: defaults, memory: { rooms: {}, pages: {} } }));
+  const { bot, saved } = fixture(undefined, () => ({ personality: { version: 1, at: 0, cells: {} }, budget: { day, calls: 30 }, settings: defaults, memory: { rooms: {} } }));
   assert.deepEqual([bot.budget, bot.spent], [{ day, calls: 30 }, {}]);
   bot.save();
   assert.deepEqual(JSON.parse(saved[0]).spent, {});
@@ -556,7 +564,7 @@ test('a state.json from before calls were sorted by role loads with the day\'s c
 });
 test('a state.json from before the clock guards went loads without them and saves cleanly', () => {
   const personality = { version: 1, at: 0, cells: {} };
-  const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, settings: { ...defaults, cooldown: 15, organic_gap: 30, organic: true }, memory: { rooms: {}, pages: {} } }));
+  const { bot, saved } = fixture(undefined, () => ({ personality, budget: { day: '', calls: 0 }, settings: { ...defaults, cooldown: 15, organic_gap: 30, organic: true }, memory: { rooms: {} } }));
   assert.deepEqual(bot.settings, { ...defaults, organic: true });
   bot.save();
   assert.deepEqual(JSON.parse(saved[0]).settings, { ...defaults, organic: true });
@@ -846,12 +854,12 @@ test('a state.json from before this slice (version-1 personality, day buckets, n
   const { bot, saved } = fixture(undefined, () => structuredClone(legacy));
   assert.deepEqual(bot.state, { version: 2, cells: { '2222': 4, '3322': 1.5 }, n: 0 });
   assert.deepEqual(bot.settings, { ...defaults, persona: 'You are {name}, from before.', organic: true, norms: { general: 'be kind' } });
-  assert.deepEqual(bot.memory, { rooms: {}, pages: {} });
+  assert.deepEqual(bot.memory, { rooms: {} });
   assert.equal(bot.notes('general'), 'Norms: be kind');
   bot.save();
   const written = JSON.parse(saved[0]);
   assert.deepEqual(written.personality, { version: 2, cells: { '2222': 4, '3322': 1.5 }, n: 0 });
   assert.deepEqual([written.settings.tensions, written.settings.revisions], [settings.tensions.default(), []]);
-  assert.deepEqual(written.memory, { rooms: {}, pages: { general: { closed: 0, mostly: [], some: [], shifts: [] } } });
+  assert.deepEqual(written.memory, { rooms: {} });
   assert.ok(!JSON.stringify(written).includes('"at"') && !JSON.stringify(written).includes('days'));
 });

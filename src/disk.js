@@ -40,9 +40,6 @@ const state = object({
   }),
   memory: object({
     rooms: map(room, object({ open: block, blocks: list(block, BLOCKS), folds: list(fold, FOLDS), closed: count })),
-    // A digest, not text: onepager() writes the words each time from these labels and the owner's norms. closed names
-    // the block it was built after.
-    pages: map(room, object({ closed: count, mostly: list(one(topics), 2), some: list(one(topics), 2), shifts: list(object({ axis: one(axes), up: boolean }), axes.length) })),
   }),
 });
 const status = object({

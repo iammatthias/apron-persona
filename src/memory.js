@@ -2,9 +2,8 @@ import { axes, leanings, topics, BLOCK, BLOCKS, FOLD, FOLDS, RECENT, CONFIDENCE 
 import { list } from './settings.js';
 // The room memory: per room, counts only, in blocks of BLOCK messages the bot classified there. No speaker and no text:
 // a topic is one fixed label. A room holds the block being filled (open), the last BLOCKS closed blocks whole, before
-// them up to FOLDS folds of FOLD blocks each, and closed, how many blocks have closed there. pages holds each room's
-// digest as of its last closed block, from which onepager() writes the prompt's room notes.
-export const empty = () => ({ rooms: {}, pages: {} });
+// them up to FOLDS folds of FOLD blocks each, and closed, how many blocks have closed there.
+export const empty = () => ({ rooms: {} });
 const round = x => Math.round(x * 1000) / 1000;
 const block = () => ({ topics: {}, learned: 0, lean: [0, 0, 0, 0], confidence: Object.fromEntries(CONFIDENCE.map(c => [c, 0])) });
 const counts = () => ({ messages: 0, engaged: 0, replies: 0, chimes: 0 });

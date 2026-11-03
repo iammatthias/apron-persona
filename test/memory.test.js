@@ -21,7 +21,7 @@ test('a tally counts a message by room and topic into the block being filled, su
   assert.deepEqual(m, { rooms: {
     general: { open: { topics: { code: { messages: 2, engaged: 1, replies: 1, chimes: 0 }, banter: { messages: 1, engaged: 0, replies: 0, chimes: 1 } }, learned: 2, lean: [.75, -.5, -.25, .5], confidence: { HIGH: 1, MEDIUM: 0, LOW: 1, UNCERTAIN: 0 } }, blocks: [], folds: [], closed: 0 },
     random: { open: { topics: { other: { messages: 1, engaged: 1, replies: 0, chimes: 0 } }, learned: 0, lean: [0, 0, 0, 0], confidence: none }, blocks: [], folds: [], closed: 0 },
-  }, pages: {} });
+  } });
 });
 // Counts `n` messages of `topic` into the room, each learned with `lean` when given.
 const fill = (m, room, n, topic, lean) => { for (let i = 0; i < n; ++i) tally(m, room, { topic, engaged: false, outcome: 'learned-only', style: lean && lean.map(v => v + .5) }); };
